@@ -1,0 +1,47 @@
+// One codebase, two deployables (docs/plan/01-architecture.md §1):
+// ApiModule adds HTTP controllers; WorkerModule is queue consumers only.
+// Which queues actually start is decided by JobRepository.startWorkers()
+// from EL_WORKERS_INCLUDE / EL_QUEUES_EXCLUDE.
+import { BullModule } from '@nestjs/bullmq';
+import { Module } from '@nestjs/common';
+import { APP_GUARD, APP_PIPE } from '@nestjs/core';
+import { KyselyModule } from 'nestjs-kysely';
+import { ZodValidationPipe } from 'nestjs-zod';
+import { AdminController } from 'src/controllers/admin.controller';
+import { AuthController } from 'src/controllers/auth.controller';
+import { EventController } from 'src/controllers/event.controller';
+import { OrganizationController } from 'src/controllers/organization.controller';
+import { AuthGuard } from 'src/middleware/auth.guard';
+import { repositories } from 'src/repositories';
+import { ConfigRepository } from 'src/repositories/config.repository';
+import { services } from 'src/services';
+import { getKyselyConfig } from 'src/utils/database';
+
+const configRepository = new ConfigRepository();
+const { bull, database } = configRepository.getEnv();
+
+const common = [...repositories, ...services];
+
+const imports = [
+  BullModule.forRoot(bull.config),
+  BullModule.registerQueue(...bull.queues),
+  KyselyModule.forRoot(getKyselyConfig(database.config)),
+];
+
+@Module({
+  imports,
+  controllers: [AuthController, AdminController, OrganizationController, EventController],
+  providers: [
+    ...common,
+    AuthGuard,
+    { provide: APP_GUARD, useExisting: AuthGuard },
+    { provide: APP_PIPE, useClass: ZodValidationPipe },
+  ],
+})
+export class ApiModule {}
+
+@Module({
+  imports,
+  providers: common,
+})
+export class WorkerModule {}

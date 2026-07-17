@@ -1,0 +1,29 @@
+# Local development: Postgres (VectorChord) + Redis only; run the backend with
+# `pnpm --filter backend start:dev`.
+name: eventlens-dev
+
+services:
+  database:
+    # Immich's Postgres image — pgvector + VectorChord preinstalled
+    # (docs/plan/03-database-schema.md)
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: eventlens
+    ports:
+      # host 5433 — a native Windows PostgreSQL commonly owns 5432
+      - "5433:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    shm_size: 128mb
+    restart: unless-stopped
+
+  redis:
+    image: valkey/valkey:8
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+volumes:
+  dbdata:

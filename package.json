@@ -1,0 +1,14 @@
+{
+  "name": "eventlens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Event media management platform — org events, face-matched participant galleries",
+  "scripts": {
+    "build": "pnpm -r build",
+    "check": "pnpm -r check",
+    "test": "pnpm -r test"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

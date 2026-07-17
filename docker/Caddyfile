@@ -1,0 +1,29 @@
+# Reverse proxy for the main VM (docs/plan/11-deployment.md §4). TLS via ACME;
+# serves the web SPA and routes /api → backend. Replace the site address with
+# your domain; Caddy provisions certificates automatically.
+events.example.com {
+	encode gzip zstd
+
+	# API + OpenAPI docs
+	handle /api/* {
+		reverse_proxy backend:3001
+	}
+
+	# Static SPA (built apps/web output). Until the `web` service is added in
+	# M1's web shell, this block can be commented out.
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+
+	# video uploads need a high body-size ceiling (M2)
+	request_body {
+		max_size 5GB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+}

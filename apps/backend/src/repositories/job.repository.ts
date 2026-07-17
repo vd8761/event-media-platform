@@ -1,0 +1,265 @@
+// Ported from immich:server/src/repositories/job.repository.ts. Keeps the
+// @OnJob handler registry, the startup handler-completeness check, and
+// queue/queueAll. EventLens changes (docs/plan/01-architecture.md §1):
+//   - startWorkers() starts only queues whose QUEUE_ROLES entry matches the
+//     process roles, minus EL_QUEUES_EXCLUDE (multi-GPU scale-out, risk R1)
+//   - workers run handlers directly (no event-repository indirection) with
+//     per-queue concurrency + retry policy from src/types.ts
+import { getQueueToken } from '@nestjs/bullmq';
+import { Injectable } from '@nestjs/common';
+import { ModuleRef, Reflector } from '@nestjs/core';
+import { JobsOptions, Queue, Worker } from 'bullmq';
+import { setTimeout } from 'node:timers/promises';
+import { JobConfig } from 'src/decorators';
+import { JobName, JobStatus, MetadataKey, QueueCleanType, QueueName } from 'src/enum';
+import { ConfigRepository } from 'src/repositories/config.repository';
+import { LoggingRepository } from 'src/repositories/logging.repository';
+import { JobCounts, JobItem, QUEUE_CONCURRENCY, QUEUE_RETRY, QUEUE_ROLES } from 'src/types';
+import { getKeyByValue, getMethodNames, StartupError } from 'src/utils/misc';
+
+type JobMapItem = {
+  jobName: JobName;
+  queueName: QueueName;
+  handler: (job: any) => Promise<JobStatus>;
+  label: string;
+};
+
+@Injectable()
+export class JobRepository {
+  private workers: Partial<Record<QueueName, Worker>> = {};
+  private handlers: Partial<Record<JobName, JobMapItem>> = {};
+
+  constructor(
+    private moduleRef: ModuleRef,
+    private configRepository: ConfigRepository,
+    private logger: LoggingRepository,
+  ) {
+    this.logger.setContext(JobRepository.name);
+  }
+
+  setup(services: (new (...args: any[]) => unknown)[]) {
+    const reflector = this.moduleRef.get(Reflector, { strict: false });
+
+    // discovery
+    for (const Service of services) {
+      const instance = this.moduleRef.get<any>(Service);
+      for (const methodName of getMethodNames(instance)) {
+        const handler = instance[methodName];
+        const config = reflector.get<JobConfig>(MetadataKey.JobConfig, handler);
+        if (!config) {
+          continue;
+        }
+
+        const { name: jobName, queue: queueName } = config;
+        const label = `${Service.name}.${handler.name}`;
+
+        // one handler per job
+        if (this.handlers[jobName]) {
+          const jobKey = getKeyByValue(JobName, jobName);
+          const errorMessage = `Failed to add job handler for ${label}`;
+          this.logger.error(
+            `${errorMessage}. JobName.${jobKey} is already handled by ${this.handlers[jobName].label}.`,
+          );
+          throw new StartupError(errorMessage);
+        }
+
+        this.handlers[jobName] = {
+          label,
+          jobName,
+          queueName,
+          handler: handler.bind(instance),
+        };
+
+        this.logger.verbose(`Added job handler: ${jobName} => ${label}`);
+      }
+    }
+
+    // no missing handlers
+    for (const [jobKey, jobName] of Object.entries(JobName)) {
+      const item = this.handlers[jobName];
+      if (!item) {
+        const errorMessage = `Failed to find job handler for Job.${jobKey} ("${jobName}")`;
+        this.logger.error(
+          `${errorMessage}. Make sure to add the @OnJob({ name: JobName.${jobKey}, queue: QueueName.XYZ }) decorator for the new job.`,
+        );
+        throw new StartupError(errorMessage);
+      }
+    }
+  }
+
+  startWorkers() {
+    const { bull, workers, excludedQueues } = this.configRepository.getEnv();
+    for (const queueName of Object.values(QueueName)) {
+      if (!workers.includes(QUEUE_ROLES[queueName])) {
+        continue;
+      }
+      if (excludedQueues.includes(queueName)) {
+        this.logger.log(`Skipping queue (EL_QUEUES_EXCLUDE): ${queueName}`);
+        continue;
+      }
+      this.logger.debug(`Starting worker for queue: ${queueName}`);
+      this.workers[queueName] = new Worker(queueName, (job) => this.run(job as JobItem), {
+        ...bull.config,
+        concurrency: QUEUE_CONCURRENCY[queueName],
+      });
+    }
+  }
+
+  // Cron schedule (docs/plan/05-job-orchestration.md §6) via BullMQ job
+  // schedulers — upserts are idempotent, so every ingest process may register.
+  async registerCronSchedules() {
+    const crons: { queue: QueueName; name: JobName; pattern: string }[] = [
+      { queue: QueueName.Match, name: JobName.ParticipantMatchSweep, pattern: '*/15 * * * *' },
+      { queue: QueueName.Background, name: JobName.StagingSweep, pattern: '0 * * * *' },
+      { queue: QueueName.StorageCleanup, name: JobName.SelfieRetentionSweep, pattern: '30 2 * * *' },
+      { queue: QueueName.Background, name: JobName.StorageReconcile, pattern: '0 3 * * *' },
+      { queue: QueueName.Background, name: JobName.SessionCleanup, pattern: '30 3 * * *' },
+      { queue: QueueName.Background, name: JobName.PersonCleanup, pattern: '0 4 * * *' },
+    ];
+
+    for (const { queue, name, pattern } of crons) {
+      await this.getQueue(queue).upsertJobScheduler(`cron:${name}`, { pattern }, { name, data: {} });
+    }
+    this.logger.log(`Registered ${crons.length} cron schedules`);
+  }
+
+  async teardown() {
+    await Promise.all(Object.values(this.workers).map((worker) => worker.close()));
+    this.workers = {};
+  }
+
+  async run({ name, data }: { name: string; data?: any }): Promise<JobStatus> {
+    const item = this.handlers[name as JobName];
+    if (!item) {
+      this.logger.warn(`Skipping unknown job: "${name}"`);
+      return JobStatus.Skipped;
+    }
+
+    const status = await item.handler(data);
+    if (status === JobStatus.Failed) {
+      // surface handler-reported failure to BullMQ so retry/backoff applies
+      throw new Error(`Job failed: ${name}`);
+    }
+    return status;
+  }
+
+  async isActive(name: QueueName): Promise<boolean> {
+    const count = await this.getQueue(name).getActiveCount();
+    return count > 0;
+  }
+
+  async isPaused(name: QueueName): Promise<boolean> {
+    return this.getQueue(name).isPaused();
+  }
+
+  pause(name: QueueName) {
+    return this.getQueue(name).pause();
+  }
+
+  resume(name: QueueName) {
+    return this.getQueue(name).resume();
+  }
+
+  empty(name: QueueName) {
+    return this.getQueue(name).drain();
+  }
+
+  clear(name: QueueName, type: QueueCleanType) {
+    return this.getQueue(name).clean(0, 1000, type);
+  }
+
+  async retryFailed(name: QueueName) {
+    const queue = this.getQueue(name);
+    const jobs = await queue.getFailed();
+    await Promise.all(jobs.map((job) => job.retry()));
+  }
+
+  getJobCounts(name: QueueName): Promise<JobCounts> {
+    return this.getQueue(name).getJobCounts(
+      'active',
+      'completed',
+      'failed',
+      'delayed',
+      'waiting',
+      'paused',
+    ) as unknown as Promise<JobCounts>;
+  }
+
+  async queueAll(items: JobItem[]): Promise<void> {
+    if (items.length === 0) {
+      return;
+    }
+
+    const promises = [];
+    const itemsByQueue = {} as Record<string, { name: string; data: any; opts?: JobsOptions }[]>;
+    for (const item of items) {
+      const queueName = this.getQueueName(item.name);
+      const options = this.getJobOptions(item) || undefined;
+
+      if (options?.jobId || options?.deduplication || options?.delay) {
+        // add() instead of addBulk() so jobId/deduplication/delay take effect
+        promises.push(this.getQueue(queueName).add(item.name, item.data ?? {}, options));
+      } else {
+        itemsByQueue[queueName] = itemsByQueue[queueName] || [];
+        itemsByQueue[queueName].push({ name: item.name, data: item.data ?? {}, opts: options });
+      }
+    }
+
+    for (const [queueName, jobs] of Object.entries(itemsByQueue)) {
+      promises.push(this.getQueue(queueName as QueueName).addBulk(jobs));
+    }
+
+    await Promise.all(promises);
+  }
+
+  async queue(item: JobItem): Promise<void> {
+    return this.queueAll([item]);
+  }
+
+  async waitForQueueCompletion(...queues: QueueName[]): Promise<void> {
+    const getPending = async () => {
+      const results = await Promise.all(queues.map(async (name) => ({ pending: await this.isActive(name), name })));
+      return results.filter(({ pending }) => pending).map(({ name }) => name);
+    };
+
+    let pending = await getPending();
+    while (pending.length > 0) {
+      this.logger.verbose(`Waiting for ${pending[0]} queue to stop...`);
+      await setTimeout(1000);
+      pending = await getPending();
+    }
+  }
+
+  private getQueueName(name: JobName) {
+    return (this.handlers[name] as JobMapItem).queueName;
+  }
+
+  // Debounce/dedup patterns from docs/plan/05-job-orchestration.md §1.
+  private getJobOptions(item: JobItem): JobsOptions | null {
+    const retry = QUEUE_RETRY[this.getQueueName(item.name)];
+    const base: JobsOptions = {
+      attempts: retry.attempts,
+      backoff: { type: 'exponential', delay: retry.backoffMs },
+    };
+
+    switch (item.name) {
+      case JobName.ParticipantRematch: {
+        // burst of uploads → one rematch per event
+        return { ...base, jobId: `rematch:${item.data.eventId}`, delay: 60_000 };
+      }
+      case JobName.SendDigest: {
+        return { ...base, jobId: `digest:${item.data.participantId}` };
+      }
+      case JobName.FaceRecognizeQueueAll: {
+        return { ...base, deduplication: { id: JobName.FaceRecognizeQueueAll } };
+      }
+      default: {
+        return base;
+      }
+    }
+  }
+
+  private getQueue(queue: QueueName): Queue {
+    return this.moduleRef.get<Queue>(getQueueToken(queue), { strict: false });
+  }
+}

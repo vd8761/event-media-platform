@@ -1,0 +1,44 @@
+# GPU VM (docs/plan/11-deployment.md §2): backend-worker (media role) + the
+# verbatim immich_ml sidecar built with DEVICE=cuda. Prereqs: NVIDIA driver +
+# nvidia-container-toolkit. DB/Redis are reached over the tailnet.
+name: eventlens-gpu
+
+services:
+  backend-worker:
+    image: eventlens-backend
+    env_file: .env
+    environment:
+      EL_WORKERS_INCLUDE: media
+      # Set ONLY on the 2nd..Nth GPU VM — facialRecognition must have exactly
+      # one consumer globally (risk R1):
+      # EL_QUEUES_EXCLUDE: facialRecognition
+      MACHINE_LEARNING_URL: http://ml:3003
+      # DB_HOSTNAME / REDIS_HOSTNAME: tailnet IP of the main VM (from .env)
+    volumes:
+      - cache:/cache
+    depends_on:
+      - ml
+    restart: always
+
+  ml:
+    # apps/ml is the verbatim copy of immich:machine-learning (M3):
+    #   docker build --build-arg DEVICE=cuda -t eventlens-ml:cuda apps/ml
+    image: eventlens-ml:cuda
+    environment:
+      MACHINE_LEARNING_MODEL_TTL: "0"
+      MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__DETECTION: buffalo_l
+      MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__RECOGNITION: buffalo_l
+    volumes:
+      - model-cache:/cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: always
+
+volumes:
+  cache:
+  model-cache:

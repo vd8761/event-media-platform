@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+.svelte-kit/
+*.tsbuildinfo
+.env
+.env.*
+!docker/example.env
+coverage/
+.DS_Store
+Thumbs.db
+/staging/
+/cache/
