@@ -1,11 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateEventDto, UpdateEventDto } from 'src/dtos/event.dto';
+import { JobName } from 'src/enum';
 import { EventRepository } from 'src/repositories/event.repository';
+import { JobRepository } from 'src/repositories/job.repository';
 import { EventRow } from 'src/schema';
+import { StorageKeys } from 'src/utils/storage-keys';
 
 @Injectable()
 export class EventService {
-  constructor(private eventRepository: EventRepository) {}
+  constructor(
+    private eventRepository: EventRepository,
+    private jobRepository: JobRepository,
+  ) {}
 
   listByOrg(orgId: string): Promise<EventRow[]> {
     return this.eventRepository.listByOrg(orgId);
@@ -49,8 +55,11 @@ export class EventService {
 
   async remove(orgId: string, eventId: string): Promise<void> {
     await this.get(orgId, eventId);
-    // R2 prefix cleanup job lands with the storage pipeline in M2
-    // (docs/plan/04-storage-r2.md §6)
     await this.eventRepository.softDelete(orgId, eventId);
+    // cascade R2 deletion by prefix (docs/plan/04-storage-r2.md §6)
+    await this.jobRepository.queue({
+      name: JobName.CleanupPrefix,
+      data: { prefix: StorageKeys.eventPrefix(orgId, eventId) },
+    });
   }
 }

@@ -1,16 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AddMemberDto, CreateOrgDto, UpdateMemberDto, UpdateOrgDto } from 'src/dtos/org.dto';
-import { OrgRole } from 'src/enum';
+import { JobName, OrgRole } from 'src/enum';
 import { CryptoRepository } from 'src/repositories/crypto.repository';
+import { JobRepository } from 'src/repositories/job.repository';
 import { OrgMember, OrganizationRepository } from 'src/repositories/organization.repository';
 import { UserRepository } from 'src/repositories/user.repository';
 import { Organization } from 'src/schema';
 import { SALT_ROUNDS } from 'src/services/auth.service';
+import { StorageKeys } from 'src/utils/storage-keys';
 
 @Injectable()
 export class OrganizationService {
   constructor(
     private cryptoRepository: CryptoRepository,
+    private jobRepository: JobRepository,
     private organizationRepository: OrganizationRepository,
     private userRepository: UserRepository,
   ) {}
@@ -56,9 +59,12 @@ export class OrganizationService {
 
   async remove(orgId: string): Promise<void> {
     await this.get(orgId);
-    // R2 prefix cleanup is queued by the storageCleanup pipeline in M2
-    // (docs/plan/04-storage-r2.md §6)
     await this.organizationRepository.softDelete(orgId);
+    // cascade R2 deletion for the whole org (docs/plan/04-storage-r2.md §6)
+    await this.jobRepository.queue({
+      name: JobName.CleanupPrefix,
+      data: { prefix: StorageKeys.orgPrefix(orgId) },
+    });
   }
 
   // --- members ---

@@ -8,10 +8,12 @@ import { APP_GUARD, APP_PIPE } from '@nestjs/core';
 import { KyselyModule } from 'nestjs-kysely';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { AdminController } from 'src/controllers/admin.controller';
+import { AssetController } from 'src/controllers/asset.controller';
 import { AuthController } from 'src/controllers/auth.controller';
 import { EventController } from 'src/controllers/event.controller';
 import { OrganizationController } from 'src/controllers/organization.controller';
 import { AuthGuard } from 'src/middleware/auth.guard';
+import { FileUploadInterceptor } from 'src/middleware/file-upload.interceptor';
 import { repositories } from 'src/repositories';
 import { ConfigRepository } from 'src/repositories/config.repository';
 import { services } from 'src/services';
@@ -30,10 +32,11 @@ const imports = [
 
 @Module({
   imports,
-  controllers: [AuthController, AdminController, OrganizationController, EventController],
+  controllers: [AuthController, AdminController, OrganizationController, EventController, AssetController],
   providers: [
     ...common,
     AuthGuard,
+    FileUploadInterceptor,
     { provide: APP_GUARD, useExisting: AuthGuard },
     { provide: APP_PIPE, useClass: ZodValidationPipe },
   ],

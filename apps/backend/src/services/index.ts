@@ -1,4 +1,5 @@
 import { AdminService } from 'src/services/admin.service';
+import { AssetService } from 'src/services/asset.service';
 import { AuthService } from 'src/services/auth.service';
 import { CleanupService } from 'src/services/cleanup.service';
 import { EventService } from 'src/services/event.service';
@@ -8,9 +9,11 @@ import { MediaService } from 'src/services/media.service';
 import { NotificationService } from 'src/services/notification.service';
 import { OrganizationService } from 'src/services/organization.service';
 import { ParticipantService } from 'src/services/participant.service';
+import { UploadService } from 'src/services/upload.service';
 
 export const services = [
   AdminService,
+  AssetService,
   AuthService,
   CleanupService,
   EventService,
@@ -20,4 +23,5 @@ export const services = [
   NotificationService,
   OrganizationService,
   ParticipantService,
+  UploadService,
 ];
