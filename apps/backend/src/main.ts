@@ -12,6 +12,7 @@ import { ConfigRepository } from 'src/repositories/config.repository';
 import { DatabaseRepository } from 'src/repositories/database.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
+import { MachineLearningRepository } from 'src/repositories/machine-learning.repository';
 import { services } from 'src/services';
 import { isStartUpError } from 'src/utils/misc';
 
@@ -44,6 +45,10 @@ async function bootstrap() {
   }
   if (workers.includes(WorkerRole.Ingest)) {
     await jobRepository.registerCronSchedules();
+  }
+  if (workers.includes(WorkerRole.Media)) {
+    // the worker gates face jobs on ML /ping health (docs/plan/11 §2)
+    app.get(MachineLearningRepository).startAvailabilityChecks();
   }
 
   if (isApi) {

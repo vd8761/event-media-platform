@@ -9,6 +9,7 @@ import { MediaService } from 'src/services/media.service';
 import { NotificationService } from 'src/services/notification.service';
 import { OrganizationService } from 'src/services/organization.service';
 import { ParticipantService } from 'src/services/participant.service';
+import { PersonService } from 'src/services/person.service';
 import { UploadService } from 'src/services/upload.service';
 
 export const services = [
@@ -23,5 +24,6 @@ export const services = [
   NotificationService,
   OrganizationService,
   ParticipantService,
+  PersonService,
   UploadService,
 ];

@@ -12,6 +12,7 @@ import { AssetController } from 'src/controllers/asset.controller';
 import { AuthController } from 'src/controllers/auth.controller';
 import { EventController } from 'src/controllers/event.controller';
 import { OrganizationController } from 'src/controllers/organization.controller';
+import { PersonController } from 'src/controllers/person.controller';
 import { AuthGuard } from 'src/middleware/auth.guard';
 import { FileUploadInterceptor } from 'src/middleware/file-upload.interceptor';
 import { repositories } from 'src/repositories';
@@ -32,7 +33,14 @@ const imports = [
 
 @Module({
   imports,
-  controllers: [AuthController, AdminController, OrganizationController, EventController, AssetController],
+  controllers: [
+    AuthController,
+    AdminController,
+    OrganizationController,
+    EventController,
+    AssetController,
+    PersonController,
+  ],
   providers: [
     ...common,
     AuthGuard,

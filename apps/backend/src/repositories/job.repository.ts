@@ -98,10 +98,21 @@ export class JobRepository {
         continue;
       }
       this.logger.debug(`Starting worker for queue: ${queueName}`);
-      this.workers[queueName] = new Worker(queueName, (job) => this.run(job as JobItem), {
+      const worker = new Worker(queueName, (job) => this.run(job as JobItem), {
         ...bull.config,
         concurrency: QUEUE_CONCURRENCY[queueName],
       });
+      // surface queue-level problems — BullMQ is silent about these by default
+      worker.on('failed', (job, error) => {
+        this.logger.error(`Job failed [${queueName}/${job?.name}] ${JSON.stringify(job?.data)}: ${error.message}`);
+      });
+      worker.on('stalled', (jobId) => {
+        this.logger.warn(`Job stalled and will be retried [${queueName}] id=${jobId}`);
+      });
+      worker.on('error', (error) => {
+        this.logger.error(`Worker error [${queueName}]: ${error.message}`);
+      });
+      this.workers[queueName] = worker;
     }
   }
 
@@ -118,7 +129,7 @@ export class JobRepository {
     ];
 
     for (const { queue, name, pattern } of crons) {
-      await this.getQueue(queue).upsertJobScheduler(`cron:${name}`, { pattern }, { name, data: {} });
+      await this.getQueue(queue).upsertJobScheduler(`cron-${name}`, { pattern }, { name, data: {} });
     }
     this.logger.log(`Registered ${crons.length} cron schedules`);
   }
@@ -242,13 +253,14 @@ export class JobRepository {
       backoff: { type: 'exponential', delay: retry.backoffMs },
     };
 
+    // NOTE: BullMQ custom job ids must not contain ':' (Redis key separator)
     switch (item.name) {
       case JobName.ParticipantRematch: {
         // burst of uploads → one rematch per event
-        return { ...base, jobId: `rematch:${item.data.eventId}`, delay: 60_000 };
+        return { ...base, jobId: `rematch-${item.data.eventId}`, delay: 60_000 };
       }
       case JobName.SendDigest: {
-        return { ...base, jobId: `digest:${item.data.participantId}` };
+        return { ...base, jobId: `digest-${item.data.participantId}` };
       }
       case JobName.FaceRecognizeQueueAll: {
         return { ...base, deduplication: { id: JobName.FaceRecognizeQueueAll } };

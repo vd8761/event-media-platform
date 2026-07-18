@@ -80,6 +80,22 @@ export class MediaRepository {
     return Buffer.from(rgbaToThumbHash(info.width, info.height, data));
   }
 
+  // 250px face crop for person thumbnails (FACE_THUMBNAIL_SIZE,
+  // immich:server/src/constants.ts; crop math in face.service getCrop).
+  async cropToThumbnail(
+    input: string,
+    crop: { x: number; y: number; width: number; height: number },
+    size: number,
+    output: string,
+  ): Promise<void> {
+    await sharp(input, { failOn: 'error', limitInputPixels: false })
+      .rotate()
+      .extract({ left: Math.max(0, crop.x), top: Math.max(0, crop.y), width: crop.width, height: crop.height })
+      .resize(size, size, { fit: 'outside', withoutEnlargement: true })
+      .toFormat('jpeg', { quality: THUMBNAIL_QUALITY })
+      .toFile(output);
+  }
+
   probe(input: string): Promise<VideoInfo> {
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(input, (error, data) => {

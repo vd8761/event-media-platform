@@ -25,6 +25,21 @@ services:
       - "6379:6379"
     restart: unless-stopped
 
+  # ML sidecar for local dev — upstream prebuilt CPU image (apps/ml is a
+  # verbatim copy, so the API is identical; the GPU VM builds apps/ml with
+  # DEVICE=cuda). First start downloads buffalo_l (~300 MB) into model-cache.
+  ml:
+    image: ghcr.io/immich-app/immich-machine-learning:release
+    environment:
+      MACHINE_LEARNING_MODEL_TTL: "0"
+      MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__DETECTION: buffalo_l
+      MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__RECOGNITION: buffalo_l
+    ports:
+      - "3003:3003"
+    volumes:
+      - model-cache:/cache
+    restart: unless-stopped
+
   # Local S3 stand-in for Cloudflare R2 (same @aws-sdk/client-s3 path).
   minio:
     image: minio/minio:latest
@@ -54,3 +69,4 @@ services:
 volumes:
   dbdata:
   miniodata:
+  model-cache:
