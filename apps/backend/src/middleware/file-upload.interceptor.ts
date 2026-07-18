@@ -15,8 +15,10 @@ import { ConfigRepository } from 'src/repositories/config.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
 
 export const ASSET_UPLOAD_FIELD = 'assetData';
+export const SELFIE_UPLOAD_FIELD = 'selfie';
 
-// image/* and video/* only (docs/plan/08 §3.2 filter, applied here for uploads)
+// image/* and video/* only; the selfie field additionally rejects video in
+// the public service (docs/plan/07 §2)
 const ACCEPTED_MIME = /^(image|video)\//;
 
 export interface StagedUpload {
@@ -34,7 +36,7 @@ interface Callback<T> {
 
 @Injectable()
 export class FileUploadInterceptor implements NestInterceptor {
-  private handler: ReturnType<multer.Multer['single']>;
+  private handler: ReturnType<multer.Multer['fields']>;
   private stagingFolder: string;
 
   constructor(
@@ -54,7 +56,10 @@ export class FileUploadInterceptor implements NestInterceptor {
         _removeFile: this.removeFile.bind(this),
       },
     });
-    this.handler = instance.single(ASSET_UPLOAD_FIELD);
+    this.handler = instance.fields([
+      { name: ASSET_UPLOAD_FIELD, maxCount: 1 },
+      { name: SELFIE_UPLOAD_FIELD, maxCount: 1 },
+    ]);
   }
 
   async intercept(context: ExecutionContext, next: CallHandler<any>): Promise<Observable<any>> {
@@ -113,9 +118,14 @@ export class FileUploadInterceptor implements NestInterceptor {
   }
 }
 
-// multer stores the _handleFile result on the field's file object; surface it typed.
-export function getStagedUpload(request: Request): StagedUpload | undefined {
-  const file = (request as unknown as { file?: Express.Multer.File & Partial<StagedUpload> }).file;
+// multer .fields() stores results on request.files[field][0]; surface it typed.
+export function getStagedUpload(
+  request: Request,
+  field: string = ASSET_UPLOAD_FIELD,
+): StagedUpload | undefined {
+  const files = (request as unknown as { files?: Record<string, (Express.Multer.File & Partial<StagedUpload>)[]> })
+    .files;
+  const file = files?.[field]?.[0];
   if (!file?.stagingPath) {
     return undefined;
   }

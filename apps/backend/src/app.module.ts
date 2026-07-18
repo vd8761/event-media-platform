@@ -12,7 +12,9 @@ import { AssetController } from 'src/controllers/asset.controller';
 import { AuthController } from 'src/controllers/auth.controller';
 import { EventController } from 'src/controllers/event.controller';
 import { OrganizationController } from 'src/controllers/organization.controller';
+import { ParticipantAdminController } from 'src/controllers/participant-admin.controller';
 import { PersonController } from 'src/controllers/person.controller';
+import { PublicController } from 'src/controllers/public.controller';
 import { AuthGuard } from 'src/middleware/auth.guard';
 import { FileUploadInterceptor } from 'src/middleware/file-upload.interceptor';
 import { repositories } from 'src/repositories';
@@ -40,6 +42,8 @@ const imports = [
     EventController,
     AssetController,
     PersonController,
+    ParticipantAdminController,
+    PublicController,
   ],
   providers: [
     ...common,

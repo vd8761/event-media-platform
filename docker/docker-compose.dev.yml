@@ -40,6 +40,14 @@ services:
       - model-cache:/cache
     restart: unless-stopped
 
+  # SMTP catcher for the email pipeline: SMTP on 1025, web UI/API on 8025.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    restart: unless-stopped
+
   # Local S3 stand-in for Cloudflare R2 (same @aws-sdk/client-s3 path).
   minio:
     image: minio/minio:latest

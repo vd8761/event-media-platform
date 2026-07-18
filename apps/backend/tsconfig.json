@@ -4,6 +4,7 @@
     "moduleResolution": "node16",
     "target": "es2023",
     "lib": ["es2023"],
+    "jsx": "react-jsx",
     "outDir": "./dist",
     "baseUrl": "./",
     "paths": {

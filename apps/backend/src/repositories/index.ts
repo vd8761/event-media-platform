@@ -2,6 +2,8 @@ import { AssetRepository } from 'src/repositories/asset.repository';
 import { ConfigRepository } from 'src/repositories/config.repository';
 import { CryptoRepository } from 'src/repositories/crypto.repository';
 import { DatabaseRepository } from 'src/repositories/database.repository';
+import { EmailLogRepository } from 'src/repositories/email-log.repository';
+import { EmailRepository } from 'src/repositories/email.repository';
 import { EventRepository } from 'src/repositories/event.repository';
 import { ExifRepository } from 'src/repositories/exif.repository';
 import { FaceRepository } from 'src/repositories/face.repository';
@@ -23,6 +25,8 @@ export const repositories = [
   ConfigRepository,
   CryptoRepository,
   DatabaseRepository,
+  EmailLogRepository,
+  EmailRepository,
   EventRepository,
   ExifRepository,
   FaceRepository,

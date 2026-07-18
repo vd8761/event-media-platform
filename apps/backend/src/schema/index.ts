@@ -173,6 +173,8 @@ export interface ParticipantTable {
   selfieKey: string | null;
   selfieEmbedding: string | null;
   galleryTokenHash: Buffer;
+  // AES-256-GCM(raw token) — digest emails need the raw token for the link
+  galleryTokenEnc: Buffer | null;
   status: Generated<ParticipantStatus>;
   notifiedFirstAt: Timestamp | null;
   lastNotifiedAt: Timestamp | null;
