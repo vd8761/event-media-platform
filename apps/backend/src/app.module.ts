@@ -10,7 +10,9 @@ import { ZodValidationPipe } from 'nestjs-zod';
 import { AdminController } from 'src/controllers/admin.controller';
 import { AssetController } from 'src/controllers/asset.controller';
 import { AuthController } from 'src/controllers/auth.controller';
+import { CloudController } from 'src/controllers/cloud.controller';
 import { EventController } from 'src/controllers/event.controller';
+import { ImportController } from 'src/controllers/import.controller';
 import { OrganizationController } from 'src/controllers/organization.controller';
 import { ParticipantAdminController } from 'src/controllers/participant-admin.controller';
 import { PersonController } from 'src/controllers/person.controller';
@@ -44,6 +46,8 @@ const imports = [
     PersonController,
     ParticipantAdminController,
     PublicController,
+    CloudController,
+    ImportController,
   ],
   providers: [
     ...common,

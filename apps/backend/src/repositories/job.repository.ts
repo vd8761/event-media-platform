@@ -227,6 +227,20 @@ export class JobRepository {
     return this.queueAll([item]);
   }
 
+  // Honor provider Retry-After exactly (docs/plan/08 §4): pause the queue's
+  // worker for `ms`, then throw rateLimitError() from the handler so the job
+  // returns to waiting WITHOUT consuming an attempt.
+  async rateLimitQueue(queueName: QueueName, ms: number): Promise<void> {
+    const worker = this.workers[queueName];
+    if (worker) {
+      await worker.rateLimit(ms);
+    }
+  }
+
+  rateLimitError(): Error {
+    return Worker.RateLimitError();
+  }
+
   async waitForQueueCompletion(...queues: QueueName[]): Promise<void> {
     const getPending = async () => {
       const results = await Promise.all(queues.map(async (name) => ({ pending: await this.isActive(name), name })));

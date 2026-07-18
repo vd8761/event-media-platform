@@ -1,7 +1,9 @@
 import { AdminService } from 'src/services/admin.service';
 import { AssetService } from 'src/services/asset.service';
 import { AuthService } from 'src/services/auth.service';
+import { CipherService } from 'src/services/cipher.service';
 import { CleanupService } from 'src/services/cleanup.service';
+import { CloudService } from 'src/services/cloud.service';
 import { EventService } from 'src/services/event.service';
 import { FaceService } from 'src/services/face.service';
 import { GalleryTokenService } from 'src/services/gallery-token.service';
@@ -18,7 +20,9 @@ export const services = [
   AdminService,
   AssetService,
   AuthService,
+  CipherService,
   CleanupService,
+  CloudService,
   EventService,
   FaceService,
   GalleryTokenService,

@@ -9,6 +9,7 @@
     { href: `/events/${data.event.id}`, label: 'Gallery', exact: true },
     { href: `/events/${data.event.id}/people`, label: 'People', exact: false },
     { href: `/events/${data.event.id}/participants`, label: 'Participants', exact: false },
+    { href: `/events/${data.event.id}/imports`, label: 'Imports', exact: false },
     { href: `/events/${data.event.id}/settings`, label: 'Settings', exact: false },
   ]);
 

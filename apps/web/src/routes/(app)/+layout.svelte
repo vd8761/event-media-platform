@@ -3,12 +3,17 @@
   import { page } from '$app/state';
   import { api } from '$lib/api';
   import { Icon } from '@immich/ui';
-  import { mdiCalendarMultiple, mdiDomain, mdiLogout, mdiViewDashboard } from '@mdi/js';
+  import { mdiCalendarMultiple, mdiCloudOutline, mdiDomain, mdiLogout, mdiViewDashboard } from '@mdi/js';
 
   let { data, children } = $props();
 
+  const isOrgAdmin = $derived(
+    data.me.isSuperAdmin || data.me.organizations.some((org) => org.role === 'owner' || org.role === 'admin'),
+  );
+
   const navItems = $derived([
     { href: '/events', label: 'Events', icon: mdiCalendarMultiple, show: true },
+    { href: '/settings/cloud-accounts', label: 'Cloud accounts', icon: mdiCloudOutline, show: isOrgAdmin },
     { href: '/admin/organizations', label: 'Organizations', icon: mdiDomain, show: data.me.isSuperAdmin },
     { href: '/admin/system', label: 'System', icon: mdiViewDashboard, show: data.me.isSuperAdmin },
   ]);

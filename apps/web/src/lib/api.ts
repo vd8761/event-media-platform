@@ -110,6 +110,28 @@ export interface ParticipantItem {
   lastEmailAt: string | null;
 }
 
+export interface CloudAccountItem {
+  id: string;
+  provider: 'gdrive' | 'onedrive';
+  accountEmail: string;
+  createdAt: string;
+}
+
+export interface ImportProgress {
+  id: string;
+  provider: string;
+  folderName: string;
+  status: 'listing' | 'importing' | 'done' | 'failed' | 'cancelled';
+  totalFiles: number;
+  doneFiles: number;
+  skippedFiles: number;
+  failedFiles: number;
+  error: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+  failedItems?: { remoteName: string; error: string | null }[];
+}
+
 export interface QueueCounts {
   active: number;
   completed: number;
@@ -214,6 +236,26 @@ export const api = {
       post<void>(`/events/${eventId}/participants/${participantId}/resend`),
     remove: (eventId: string, participantId: string) =>
       del<void>(`/events/${eventId}/participants/${participantId}`),
+  },
+
+  // --- cloud imports (M5) ---
+  cloud: {
+    authorizeUrl: (orgId: string, provider: 'gdrive' | 'onedrive') =>
+      `/api/orgs/${orgId}/cloud/${provider}/authorize`,
+    listAccounts: (orgId: string) => get<CloudAccountItem[]>(`/orgs/${orgId}/cloud/accounts`),
+    disconnect: (orgId: string, accountId: string) => del<void>(`/orgs/${orgId}/cloud/accounts/${accountId}`),
+    listFolders: (orgId: string, accountId: string, parentId?: string) =>
+      get<{ id: string; name: string; hasChildren: boolean }[]>(
+        `/orgs/${orgId}/cloud/accounts/${accountId}/folders${parentId ? `?parentId=${encodeURIComponent(parentId)}` : ''}`,
+      ),
+  },
+
+  imports: {
+    create: (eventId: string, body: { accountId: string; folderId: string; folderName: string; recursive: boolean }) =>
+      post<ImportProgress>(`/events/${eventId}/imports`, body),
+    list: (eventId: string) => get<ImportProgress[]>(`/events/${eventId}/imports`),
+    get: (eventId: string, importId: string) => get<ImportProgress>(`/events/${eventId}/imports/${importId}`),
+    cancel: (eventId: string, importId: string) => post<void>(`/events/${eventId}/imports/${importId}/cancel`),
   },
 
   // --- public ---

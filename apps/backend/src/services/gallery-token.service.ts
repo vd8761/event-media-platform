@@ -5,6 +5,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigRepository } from 'src/repositories/config.repository';
 import { CryptoRepository } from 'src/repositories/crypto.repository';
 import { Participant } from 'src/schema';
+import { CipherService } from 'src/services/cipher.service';
 
 export interface GeneratedToken {
   raw: string;
@@ -14,26 +15,14 @@ export interface GeneratedToken {
 
 @Injectable()
 export class GalleryTokenService {
-  private key: Buffer;
   private publicBaseUrl: string;
 
   constructor(
     configRepository: ConfigRepository,
+    private cipherService: CipherService,
     private cryptoRepository: CryptoRepository,
   ) {
-    const env = configRepository.getEnv();
-    this.publicBaseUrl = env.publicBaseUrl.replace(/\/$/, '');
-    if (env.tokenEncryptionKey) {
-      this.key = Buffer.from(env.tokenEncryptionKey, 'hex');
-      if (this.key.length !== 32) {
-        throw new Error('EL_TOKEN_ENCRYPTION_KEY must be 32 bytes of hex (64 hex chars)');
-      }
-    } else if (env.environment === 'development') {
-      // dev-only fallback so the participant flow works out of the box
-      this.key = this.cryptoRepository.hashSha256('eventlens-dev-token-key');
-    } else {
-      throw new Error('EL_TOKEN_ENCRYPTION_KEY is required in production');
-    }
+    this.publicBaseUrl = configRepository.getEnv().publicBaseUrl.replace(/\/$/, '');
   }
 
   generate(): GeneratedToken {
@@ -41,7 +30,7 @@ export class GalleryTokenService {
     return {
       raw,
       hash: this.cryptoRepository.hashSha256(raw),
-      enc: this.cryptoRepository.encryptAesGcm(raw, this.key),
+      enc: this.cipherService.encrypt(raw),
     };
   }
 
@@ -49,7 +38,7 @@ export class GalleryTokenService {
     if (!participant.galleryTokenEnc) {
       return null;
     }
-    return this.cryptoRepository.decryptAesGcm(participant.galleryTokenEnc, this.key);
+    return this.cipherService.decrypt(participant.galleryTokenEnc);
   }
 
   galleryUrl(rawToken: string): string {

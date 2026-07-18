@@ -1,4 +1,6 @@
 import { AssetRepository } from 'src/repositories/asset.repository';
+import { CloudAccountRepository } from 'src/repositories/cloud-account.repository';
+import { CloudProviderRegistry } from 'src/repositories/cloud-providers';
 import { ConfigRepository } from 'src/repositories/config.repository';
 import { CryptoRepository } from 'src/repositories/crypto.repository';
 import { DatabaseRepository } from 'src/repositories/database.repository';
@@ -8,6 +10,7 @@ import { EventRepository } from 'src/repositories/event.repository';
 import { ExifRepository } from 'src/repositories/exif.repository';
 import { FaceRepository } from 'src/repositories/face.repository';
 import { FaceSearchRepository } from 'src/repositories/face-search.repository';
+import { ImportRepository } from 'src/repositories/import.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
 import { MachineLearningRepository } from 'src/repositories/machine-learning.repository';
@@ -22,6 +25,8 @@ import { UserRepository } from 'src/repositories/user.repository';
 
 export const repositories = [
   AssetRepository,
+  CloudAccountRepository,
+  CloudProviderRegistry,
   ConfigRepository,
   CryptoRepository,
   DatabaseRepository,
@@ -31,6 +36,7 @@ export const repositories = [
   ExifRepository,
   FaceRepository,
   FaceSearchRepository,
+  ImportRepository,
   JobRepository,
   LoggingRepository,
   MachineLearningRepository,
