@@ -47,4 +47,10 @@ export class PublicController {
     const url = await this.publicService.getGalleryDownloadUrl(token, assetId);
     res.redirect(302, url);
   }
+
+  // "Download all" — streamed zip of matched originals (docs/plan/07 §4)
+  @Get('gallery/:token/download')
+  downloadAll(@Param('token') token: string, @Res() res: Response) {
+    return this.publicService.streamGalleryZip(token, res);
+  }
 }

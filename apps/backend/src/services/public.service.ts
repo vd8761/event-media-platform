@@ -8,6 +8,7 @@ import {
   NotFoundException,
   PayloadTooLargeException,
 } from '@nestjs/common';
+import archiver from 'archiver';
 import { unlink } from 'node:fs/promises';
 import { StagedUpload } from 'src/middleware/file-upload.interceptor';
 import { EventStatus, JobName } from 'src/enum';
@@ -152,6 +153,45 @@ export class PublicService {
       expiresIn: DOWNLOAD_URL_TTL,
       filename: asset.originalFilename,
     });
+  }
+
+  // "Download all": stream a zip of every matched original (docs/plan/07 §4;
+  // Immich archiver pattern). Bytes flow R2 → backend → client without
+  // buffering whole files.
+  async streamGalleryZip(token: string, response: import('express').Response): Promise<void> {
+    const { participant, event } = await this.resolveGallery(token);
+    const matched = await this.participantRepository.getMatchedAssets(participant.id);
+    if (matched.length === 0) {
+      throw new NotFoundException('No photos to download yet');
+    }
+
+    const archive = archiver('zip', { zlib: { level: 0 } }); // media is already compressed
+
+    const safeName = event.name.replaceAll(/[^\w\- ]+/g, '').trim() || 'photos';
+    response.setHeader('Content-Type', 'application/zip');
+    response.setHeader('Content-Disposition', `attachment; filename="${safeName}.zip"`);
+    archive.pipe(response);
+
+    const used = new Set<string>();
+    for (const asset of matched) {
+      const full = await this.assetRepository.getById(participant.eventId, asset.assetId);
+      if (!full) {
+        continue;
+      }
+      // duplicate filenames get a numeric suffix inside the zip
+      let name = full.originalFilename;
+      for (let counter = 2; used.has(name); counter++) {
+        const dot = full.originalFilename.lastIndexOf('.');
+        name =
+          dot > 0
+            ? `${full.originalFilename.slice(0, dot)} (${counter})${full.originalFilename.slice(dot)}`
+            : `${full.originalFilename} (${counter})`;
+      }
+      used.add(name);
+      archive.append(await this.storageRepository.getStream(full.storageKey), { name });
+    }
+
+    await archive.finalize();
   }
 
   private async resolveGallery(token: string) {

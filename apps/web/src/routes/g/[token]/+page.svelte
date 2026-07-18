@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import { api, type GalleryResponse } from '$lib/api';
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
-  import { Heading, IconButton, LoadingSpinner } from '@immich/ui';
+  import { Button, Heading, IconButton, LoadingSpinner } from '@immich/ui';
   import { mdiChevronLeft, mdiChevronRight, mdiClose, mdiDownload } from '@mdi/js';
   import { Icon } from '@immich/ui';
   import { onDestroy, onMount } from 'svelte';
@@ -64,6 +64,13 @@
         {gallery.assets.length} photo{gallery.assets.length === 1 ? '' : 's'} — this gallery updates automatically as
         more photos are processed.
       </p>
+      {#if gallery.assets.length > 0}
+        <div class="mt-3">
+          <Button size="small" variant="outline" leadingIcon={mdiDownload} href={api.public.galleryDownloadAllUrl(token)}>
+            Download all
+          </Button>
+        </div>
+      {/if}
     </header>
 
     <main class="mx-auto max-w-6xl p-4">

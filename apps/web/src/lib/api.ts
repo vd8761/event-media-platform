@@ -272,6 +272,7 @@ export const api = {
     },
     gallery: (token: string) => get<GalleryResponse>(`/public/gallery/${token}`),
     galleryDownloadUrl: (token: string, assetId: string) => `/api/public/gallery/${token}/assets/${assetId}/download`,
+    galleryDownloadAllUrl: (token: string) => `/api/public/gallery/${token}/download`,
   },
 };
 

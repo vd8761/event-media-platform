@@ -5,6 +5,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_PIPE } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { KyselyModule } from 'nestjs-kysely';
 import { ZodValidationPipe } from 'nestjs-zod';
 import { AdminController } from 'src/controllers/admin.controller';
@@ -35,8 +36,12 @@ const imports = [
   KyselyModule.forRoot(getKyselyConfig(database.config)),
 ];
 
+// global modest limit; strict per-route overrides via @Throttle
+// (docs/plan/09 §3)
+const throttler = ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]);
+
 @Module({
-  imports,
+  imports: [...imports, throttler],
   controllers: [
     AuthController,
     AdminController,
@@ -53,6 +58,7 @@ const imports = [
     ...common,
     AuthGuard,
     FileUploadInterceptor,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useExisting: AuthGuard },
     { provide: APP_PIPE, useClass: ZodValidationPipe },
   ],

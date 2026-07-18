@@ -67,6 +67,12 @@ export class StorageRepository {
     await pipeline(response.Body as Readable, createWriteStream(localPath));
   }
 
+  // zip streaming (gallery download-all, docs/plan/07 §4)
+  async getStream(key: string): Promise<Readable> {
+    const response = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    return response.Body as Readable;
+  }
+
   presignGet(key: string, opts: { expiresIn: number; filename?: string }): Promise<string> {
     const command = new GetObjectCommand({
       Bucket: this.bucket,

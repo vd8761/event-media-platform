@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, Post, Put, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { AdminSignupDto, AuthDto, ChangePasswordDto, LoginDetails, LoginDto, LoginResponseDto } from 'src/dtos/auth.dto';
 import { Auth, Authenticated, GetLoginDetails } from 'src/middleware/auth.guard';
@@ -18,6 +19,7 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } }) // strict (docs/plan/09 §3)
   async login(
     @Body() dto: LoginDto,
     @GetLoginDetails() details: LoginDetails,
@@ -30,6 +32,7 @@ export class AuthController {
 
   // First boot only — creates the initial super admin while no users exist.
   @Post('admin-signup')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async adminSignup(
     @Body() dto: AdminSignupDto,
     @Res({ passthrough: true }) res: Response,
