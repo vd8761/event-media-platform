@@ -158,6 +158,11 @@ export class FaceService {
           name: JobName.FaceRecognize as const,
           data: { faceId: face.id },
         }));
+        // Immich queues FacialRecognitionQueueAll alongside the per-face jobs
+        // (person.service.ts ~line 374): early faces are skipped when their
+        // neighbors' embeddings don't exist yet, and the deduplicated queue-all
+        // sweep (which waits for detection to drain) re-covers them.
+        jobs.push({ name: JobName.FaceRecognizeQueueAll, data: { eventId: asset.eventId } });
         // debounced — a burst of uploads triggers one rematch (docs/plan/05 §1)
         jobs.push({ name: JobName.ParticipantRematch, data: { eventId: asset.eventId } });
         await this.jobRepository.queueAll(jobs);

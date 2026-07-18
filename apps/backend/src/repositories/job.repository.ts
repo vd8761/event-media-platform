@@ -263,7 +263,8 @@ export class JobRepository {
         return { ...base, jobId: `digest-${item.data.participantId}` };
       }
       case JobName.FaceRecognizeQueueAll: {
-        return { ...base, deduplication: { id: JobName.FaceRecognizeQueueAll } };
+        // per-event dedup: one pending sweep per event, however many uploads
+        return { ...base, deduplication: { id: `queueall-${item.data.eventId}` } };
       }
       default: {
         return base;
