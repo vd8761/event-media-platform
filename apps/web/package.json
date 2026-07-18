@@ -1,0 +1,29 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev --port 5173",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@immich/ui": "^0.83.0",
+    "@mdi/js": "^7.4.47",
+    "luxon": "^3.4.4"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.8",
+    "@sveltejs/kit": "^2.22.0",
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/luxon": "^3.6.2",
+    "svelte": "^5.35.0",
+    "svelte-check": "^4.1.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.9.2",
+    "vite": "^6.3.0"
+  }
+}
