@@ -1,7 +1,8 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { api, type GalleryResponse } from '$lib/api';
-  import { Button, Heading, IconButton, LoadingSpinner } from '@immich/ui';
+  import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
+  import { Heading, IconButton, LoadingSpinner } from '@immich/ui';
   import { mdiChevronLeft, mdiChevronRight, mdiClose, mdiDownload } from '@mdi/js';
   import { Icon } from '@immich/ui';
   import { onDestroy, onMount } from 'svelte';
@@ -75,24 +76,7 @@
           {/if}
         </div>
       {:else}
-        <div class="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-1.5">
-          {#each gallery.assets as asset, index (asset.id)}
-            <button
-              class="group relative aspect-square overflow-hidden rounded-lg bg-gray-100"
-              onclick={() => (viewerIndex = index)}
-            >
-              {#if asset.thumbUrl}
-                <img
-                  src={asset.thumbUrl}
-                  alt=""
-                  loading="lazy"
-                  class="h-full w-full object-cover transition group-hover:scale-105"
-                  onerror={onImageError}
-                />
-              {/if}
-            </button>
-          {/each}
-        </div>
+        <PhotoTimeline assets={gallery.assets} onOpen={(index) => (viewerIndex = index)} {onImageError} />
       {/if}
     </main>
   {/if}

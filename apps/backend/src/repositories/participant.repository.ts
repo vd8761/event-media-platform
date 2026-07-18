@@ -25,8 +25,11 @@ export interface MatchInsert {
 export interface MatchedAsset {
   assetId: string;
   capturedAt: Date | null;
+  createdAt: Date;
   originalFilename: string;
   type: string;
+  width: number | null;
+  height: number | null;
   thumbhash: Buffer | null;
   previewKey: string | null;
   thumbKey: string | null;
@@ -178,8 +181,11 @@ export class ParticipantRepository {
       .select([
         'asset.id as assetId',
         'asset.capturedAt',
+        'asset.createdAt',
         'asset.originalFilename',
         'asset.type',
+        'asset.width',
+        'asset.height',
         'asset.thumbhash',
         'preview.storageKey as previewKey',
         'thumb.storageKey as thumbKey',

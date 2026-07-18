@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, sha1Hex, uploadAsset, type AssetItem } from '$lib/api';
+  import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
   import { Button, IconButton, LoadingSpinner } from '@immich/ui';
   import {
     mdiChevronLeft,
@@ -144,27 +145,7 @@
     No photos yet — upload some to get started.
   </div>
 {:else}
-  <div class="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-1.5">
-    {#each assets as asset, index (asset.id)}
-      <button
-        class="group relative aspect-square overflow-hidden rounded-lg bg-gray-100 focus:outline-2 focus:outline-immich-primary"
-        onclick={() => (viewerIndex = index)}
-      >
-        {#if asset.thumbUrl}
-          <img src={asset.thumbUrl} alt={asset.originalFilename} loading="lazy" class="h-full w-full object-cover transition group-hover:scale-105" />
-        {:else}
-          <div class="flex h-full w-full items-center justify-center text-gray-400">
-            <LoadingSpinner />
-          </div>
-        {/if}
-        {#if asset.status !== 'processed'}
-          <span class="absolute bottom-1.5 start-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white">
-            {asset.status === 'failed' ? 'failed' : 'processing…'}
-          </span>
-        {/if}
-      </button>
-    {/each}
-  </div>
+  <PhotoTimeline {assets} onOpen={(index) => (viewerIndex = index)} />
 
   {#if nextCursor}
     <div class="mt-6 flex justify-center">

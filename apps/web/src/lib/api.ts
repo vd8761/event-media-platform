@@ -82,6 +82,7 @@ export interface AssetItem {
   status: string;
   originalFilename: string;
   capturedAt: string | null;
+  createdAt: string;
   width: number | null;
   height: number | null;
   thumbhash: string | null;
@@ -126,6 +127,9 @@ export interface GalleryResponse {
     id: string;
     type: string;
     capturedAt: string | null;
+    createdAt: string;
+    width: number | null;
+    height: number | null;
     thumbhash: string | null;
     thumbUrl: string | null;
     previewUrl: string | null;

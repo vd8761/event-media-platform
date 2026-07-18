@@ -17,6 +17,7 @@ export interface AssetListResponse {
     status: string;
     originalFilename: string;
     capturedAt: Date | null;
+    createdAt: Date;
     width: number | null;
     height: number | null;
     thumbhash: string | null;
@@ -54,6 +55,7 @@ export class AssetService {
         status: row.status,
         originalFilename: row.originalFilename,
         capturedAt: row.capturedAt,
+        createdAt: row.createdAt,
         width: row.width,
         height: row.height,
         thumbhash: row.thumbhash ? row.thumbhash.toString('base64') : null,

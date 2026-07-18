@@ -115,6 +115,9 @@ export class PublicService {
         id: asset.assetId,
         type: asset.type,
         capturedAt: asset.capturedAt,
+        createdAt: asset.createdAt,
+        width: asset.width,
+        height: asset.height,
         thumbhash: asset.thumbhash ? asset.thumbhash.toString('base64') : null,
         thumbUrl: asset.thumbKey
           ? await this.storageRepository.presignGet(asset.thumbKey, { expiresIn: GALLERY_URL_TTL })
