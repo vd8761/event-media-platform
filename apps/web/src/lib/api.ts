@@ -74,7 +74,6 @@ export interface EventItem {
   participantPageEnabled: boolean;
   participantsSeeAllPhotos: boolean;
   participantsCanDownloadAll: boolean;
-  featureAssetId: string | null;
   config: { matchMaxDistance?: number; minScore?: number; minFaces?: number };
   orgName?: string;
 }
@@ -104,7 +103,19 @@ export interface PersonItem {
   thumbnailUrl: string | null;
 }
 
+export interface FaceBoxDto {
+  id: string;
+  personId: string | null;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isCover: boolean;
+}
+
 export interface AssetDetail extends AssetItem {
+  faces: FaceBoxDto[];
   fileSize: number;
   mimeType: string;
   checksum: string;
@@ -242,10 +253,9 @@ export interface GalleryResponse {
     endsAt: string | null;
     showAllPhotos: boolean;
     canDownloadAllPhotos: boolean;
-    featureAssetId: string | null;
-    coverUrl: string | null;
   };
   status: string;
+  name: string;
   assets: GalleryAsset[];
 }
 
@@ -299,8 +309,6 @@ export const api = {
     processing: (eventId: string) => get<ProcessingStatus>(`/events/${eventId}/processing`),
     reprocessFaces: (eventId: string, force = false) =>
       post<{ queued: number }>(`/events/${eventId}/reprocess-faces`, { force }),
-    setFeaturePhoto: (eventId: string, assetId: string | null) =>
-      put<void>(`/events/${eventId}/feature-photo`, { assetId }),
   },
 
   // --- assets ---
@@ -339,6 +347,9 @@ export const api = {
         `/events/${eventId}/people/${personId}/merge`,
         { ids },
       ),
+    // choose which detected face is cropped for this person's portrait
+    setCover: (eventId: string, personId: string, faceId: string) =>
+      put<{ id: string; faceAssetFaceId: string }>(`/events/${eventId}/people/${personId}/cover`, { faceId }),
     assets: (eventId: string, personId: string) =>
       get<AssetItem[]>(`/events/${eventId}/people/${personId}/assets`),
   },
@@ -378,9 +389,10 @@ export const api = {
       get<{ name: string; description: string | null; startsAt: string | null; endsAt: string | null }>(
         `/public/events/${slug}`,
       ),
-    submitSelfie: (slug: string, email: string, selfie: File) => {
+    submitSelfie: (slug: string, email: string, name: string, selfie: File) => {
       const form = new FormData();
       form.append('email', email);
+      form.append('name', name);
       form.append('selfie', selfie);
       return request<{ message: string }>(`/public/events/${slug}/participants`, { method: 'POST', body: form });
     },
@@ -392,8 +404,12 @@ export const api = {
       ),
     galleryDownloadUrl: (token: string, assetId: string) => `/api/public/gallery/${token}/assets/${assetId}/download`,
     galleryDownloadAllUrl: (token: string) => `/api/public/gallery/${token}/download`,
-    setFeaturePhoto: (token: string, assetId: string | null) =>
-      put<void>(`/public/gallery/${token}/feature-photo`, { assetId }),
+    assetFaces: (token: string, assetId: string) =>
+      get<{ faces: FaceBoxDto[] }>(`/public/gallery/${token}/assets/${assetId}/faces`),
+    person: (token: string, personId: string) =>
+      get<{ person: { id: string; name: string }; assets: AssetItem[] }>(
+        `/public/gallery/${token}/people/${personId}`,
+      ),
   },
 };
 

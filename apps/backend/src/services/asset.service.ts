@@ -8,6 +8,7 @@ import { EventRepository } from 'src/repositories/event.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { StorageRepository } from 'src/repositories/storage.repository';
 import { JobItem } from 'src/types';
+import { toFaceBoxes } from 'src/utils/face-box';
 
 const LIST_URL_TTL = 3600; // 1 h presigned (docs/plan/04 §5)
 const DOWNLOAD_URL_TTL = 900; // 15 min
@@ -90,10 +91,11 @@ export class AssetService {
     if (!asset) {
       throw new NotFoundException('Asset not found');
     }
-    const [files, exif, people] = await Promise.all([
+    const [files, exif, people, faces] = await Promise.all([
       this.assetRepository.getFiles(assetId),
       this.assetRepository.getExif(assetId),
       this.assetRepository.getPeople(assetId),
+      this.assetRepository.getFaces(assetId),
     ]);
 
     return {
@@ -101,6 +103,7 @@ export class AssetService {
       checksum: asset.checksum.toString('hex'),
       thumbhash: asset.thumbhash ? asset.thumbhash.toString('base64') : null,
       files: files.map((file) => ({ type: file.type, width: file.width, height: file.height, format: file.format })),
+      faces: toFaceBoxes(faces),
       exif: exif ?? null,
       people: await Promise.all(
         people.map(async (person) => ({

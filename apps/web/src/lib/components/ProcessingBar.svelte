@@ -21,9 +21,9 @@
 </script>
 
 {#if assets.total > 0}
-  <div class="mb-5 rounded-2xl border border-gray-200 p-4">
+  <div class="md-surface mb-5 p-4 sm:p-5">
     <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-      <div class="flex items-center gap-2 text-sm">
+      <div class="md-title-small flex items-center gap-2">
         <Icon
           icon={busy ? mdiFaceRecognition : mdiCheckCircleOutline}
           size="1.25rem"
@@ -39,23 +39,23 @@
       </div>
 
       {#if canManage && assets.pendingDetection > 0}
-        <Button size="tiny" variant="outline" leadingIcon={mdiRefresh} onclick={onReprocess}>
+        <Button size="small" variant="outline" leadingIcon={mdiRefresh} onclick={onReprocess}>
           Run face detection
         </Button>
       {/if}
     </div>
 
-    <div class="grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-4">
+    <div class="md-label-medium grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
       <div>
-        <p class="text-gray-500">Thumbnails</p>
-        <p class="mt-0.5 text-sm font-semibold">
+        <p class="text-gray-600">Thumbnails</p>
+        <p class="md-title-medium mt-0.5">
           {assets.processed} / {assets.total}
           {#if assets.failed > 0}<span class="ms-1 font-normal text-red-600">({assets.failed} failed)</span>{/if}
         </p>
       </div>
       <div>
-        <p class="text-gray-500">Face detection</p>
-        <p class="mt-0.5 text-sm font-semibold">
+        <p class="text-gray-600">Face detection</p>
+        <p class="md-title-medium mt-0.5">
           {detectionDone} / {assets.images}
           {#if assets.pendingDetection > 0}
             <span class="ms-1 font-normal text-amber-600">({assets.pendingDetection} pending)</span>
@@ -63,8 +63,8 @@
         </p>
       </div>
       <div>
-        <p class="text-gray-500">Faces found</p>
-        <p class="mt-0.5 text-sm font-semibold">
+        <p class="text-gray-600">Faces found</p>
+        <p class="md-title-medium mt-0.5">
           {faces.total}
           {#if faces.unassigned > 0}
             <span class="ms-1 font-normal text-gray-400">({faces.unassigned} unclustered)</span>
@@ -72,8 +72,8 @@
         </p>
       </div>
       <div>
-        <p class="text-gray-500">People</p>
-        <p class="mt-0.5 text-sm font-semibold">{faces.people}</p>
+        <p class="text-gray-600">People</p>
+        <p class="md-title-medium mt-0.5">{faces.people}</p>
       </div>
     </div>
 

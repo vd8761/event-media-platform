@@ -28,26 +28,26 @@
 </script>
 
 <div
-  class="sticky top-0 z-30 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-white/95 px-4 py-2.5 shadow-sm backdrop-blur"
+  class="md-surface sticky top-16 z-30 mb-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-2 shadow-sm backdrop-blur lg:top-0"
 >
-  <div class="flex items-center gap-2">
-    <IconButton icon={mdiClose} aria-label="Exit selection" size="small" variant="ghost" color="secondary" onclick={onClear} />
-    <span class="text-sm font-medium">
+  <div class="flex min-w-0 items-center gap-1">
+    <IconButton icon={mdiClose} aria-label="Exit selection" variant="ghost" color="secondary" onclick={onClear} />
+    <span class="md-title-small truncate">
       {count === 0 ? 'Select photos' : `${count} selected`}
     </span>
   </div>
 
-  <div class="flex flex-wrap items-center gap-2">
-    <Button size="tiny" variant="ghost" color="secondary" onclick={onSelectAll}>
-      <Icon icon={mdiSelectAll} size="1.05rem" class="me-1" />
-      Select all {total}
+  <div class="flex flex-wrap items-center gap-1.5">
+    <Button size="small" variant="ghost" color="secondary" onclick={onSelectAll}>
+      <Icon icon={mdiSelectAll} size="1.15rem" class="me-1.5" />
+      <span class="hidden sm:inline">Select all&nbsp;</span>{total}
     </Button>
     {#if canDelete && onDelete}
-      <Button size="tiny" variant="ghost" color="danger" leadingIcon={mdiDelete} disabled={count === 0} onclick={onDelete}>
+      <Button size="small" variant="ghost" color="danger" leadingIcon={mdiDelete} disabled={count === 0} onclick={onDelete}>
         Delete
       </Button>
     {/if}
-    <Button size="tiny" leadingIcon={mdiDownload} disabled={count === 0} loading={downloading} onclick={onDownload}>
+    <Button size="small" leadingIcon={mdiDownload} disabled={count === 0} loading={downloading} onclick={onDownload}>
       Download{count > 0 ? ` (${count})` : ''}
     </Button>
   </div>

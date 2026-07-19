@@ -4,7 +4,7 @@
   // placeholders that cross-fade into the real thumbnail.
   import { justifiedLayout, type TimelineAsset } from '$lib/justified';
   import { Icon, LoadingSpinner } from '@immich/ui';
-  import { mdiCheck, mdiStar } from '@mdi/js';
+  import { mdiCheck } from '@mdi/js';
   import { DateTime } from 'luxon';
   import { thumbHashToDataURL } from 'thumbhash';
 
@@ -17,8 +17,6 @@
     selecting?: boolean;
     selected?: Set<string>;
     onToggleSelect?: (assetId: string) => void;
-    /** Id of the shared event cover, badged in the grid. */
-    featureAssetId?: string | null;
   }
 
   let {
@@ -29,7 +27,6 @@
     selecting = false,
     selected,
     onToggleSelect,
-    featureAssetId = null,
   }: Props = $props();
 
   let containerWidth = $state(0);
@@ -133,14 +130,6 @@
                 </span>
               {/if}
 
-              {#if featureAssetId === asset.id}
-                <span
-                  class="absolute end-1.5 top-1.5 rounded-full bg-black/50 p-1 text-amber-300"
-                  title="Event cover photo"
-                >
-                  <Icon icon={mdiStar} size="0.85rem" />
-                </span>
-              {/if}
               {#if asset.status && asset.status !== 'processed'}
                 <span
                   class="absolute bottom-1.5 start-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white"

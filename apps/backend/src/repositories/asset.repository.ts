@@ -2,7 +2,7 @@
 // takes eventId. Dedupe is the (event_id, checksum) unique index; the ported
 // constraint-detection helper answers unique-violations with 'duplicate'.
 import { Injectable } from '@nestjs/common';
-import { Kysely } from 'kysely';
+import { Kysely, sql } from 'kysely';
 import { InjectKysely } from 'nestjs-kysely';
 import { AssetFileType, AssetStatus } from 'src/enum';
 import { Asset, DB } from 'src/schema';
@@ -198,6 +198,46 @@ export class AssetRepository {
       .where('assetFace.deletedAt', 'is', null)
       .where('person.isHidden', '=', false)
       .distinctOn('person.id')
+      .execute();
+  }
+
+  // Every detected face in one photo with its box, for the viewer's overlay.
+  // The label falls back to the participant who matched through this exact
+  // face, so a guest who told us their name is shown by name even when nobody
+  // has got round to naming the cluster.
+  getFaces(assetId: string) {
+    return this.db
+      .selectFrom('assetFace')
+      .leftJoin('person', 'person.id', 'assetFace.personId')
+      .leftJoin('participantMatch', 'participantMatch.viaFaceId', 'assetFace.id')
+      .leftJoin('participant', (join) =>
+        join.onRef('participant.id', '=', 'participantMatch.participantId').on('participant.deletedAt', 'is', null),
+      )
+      .select([
+        'assetFace.id',
+        'assetFace.personId',
+        'assetFace.boundingBoxX1',
+        'assetFace.boundingBoxY1',
+        'assetFace.boundingBoxX2',
+        'assetFace.boundingBoxY2',
+        'assetFace.imageWidth',
+        'assetFace.imageHeight',
+        'person.name as personName',
+        'person.isHidden',
+        'person.faceAssetFaceId',
+        'participant.name as participantName',
+      ])
+      .where('assetFace.assetId', '=', assetId)
+      .where('assetFace.deletedAt', 'is', null)
+      .distinctOn('assetFace.id')
+      // More than one participant can match the same face (two guests whose
+      // selfies both fall inside maxDistance). DISTINCT ON keeps whichever row
+      // sorts first, so order deliberately: prefer a participant who actually
+      // gave us a name, then the closest match. Without this the label is
+      // whichever row Postgres happened to return.
+      .orderBy('assetFace.id')
+      .orderBy(sql`(participant.name IS NOT NULL AND participant.name <> '')`, 'desc')
+      .orderBy('participantMatch.distance')
       .execute();
   }
 

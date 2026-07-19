@@ -23,7 +23,6 @@
   let assets = $state<AssetItem[]>([]);
   let loading = $state(true);
   let viewerIndex = $state(-1);
-  let featureAssetId = $state<string | null>(data.event.featureAssetId ?? null);
 
   let selecting = $state(false);
   let selected = $state(new Set<string>());
@@ -72,9 +71,11 @@
     await refresh();
   }
 
-  async function setFeature(assetId: string | null) {
-    await api.events.setFeaturePhoto(eventId, assetId);
-    featureAssetId = assetId;
+  // Choosing a cover from inside this person's own gallery is the most
+  // natural place to do it, so refresh the portrait after it lands.
+  async function setCover(coverPersonId: string, faceId: string) {
+    await api.people.setCover(eventId, coverPersonId, faceId);
+    setTimeout(() => void refresh(), 1500); // give PersonThumbnail time to run
   }
 
   onMount(() => void refresh());
@@ -154,24 +155,17 @@
     No photos for this person yet.
   </div>
 {:else}
-  <PhotoTimeline
-    {assets}
-    {selecting}
-    {selected}
-    {featureAssetId}
-    onToggleSelect={toggleSelect}
-    onOpen={(index) => (viewerIndex = index)}
-  />
+  <PhotoTimeline {assets} {selecting} {selected} onToggleSelect={toggleSelect} onOpen={(index) => (viewerIndex = index)} />
 {/if}
 
 {#if viewerIndex >= 0 && assets[viewerIndex]}
   <PhotoViewer
     {assets}
     index={viewerIndex}
-    {featureAssetId}
     downloadUrl={(assetId) => api.assets.downloadUrl(eventId, assetId)}
     loadDetail={(assetId) => api.assets.get(eventId, assetId)}
-    onSetFeature={setFeature}
+    onOpenPerson={(id) => goto(`/events/${eventId}/people/${id}`)}
+    onSetPersonCover={canManage ? setCover : undefined}
     onClose={() => (viewerIndex = -1)}
     onIndexChange={(index) => (viewerIndex = index)}
   />

@@ -62,48 +62,48 @@
 
   <div class="flex flex-col gap-5">
     <div>
-      <label for="name" class="immich-form-label mb-1 block text-sm">Name</label>
+      <label for="name" class="immich-form-label mb-1.5 block">Name</label>
       <Input id="name" bind:value={name} />
     </div>
     <div>
-      <label for="slug" class="immich-form-label mb-1 block text-sm">Public link slug</label>
+      <label for="slug" class="immich-form-label mb-1.5 block">Public link slug</label>
       <Input id="slug" bind:value={slug} />
-      <p class="mt-1 text-xs text-gray-400">Participants use /e/{slug}</p>
+      <p class="md-label-medium mt-1.5 text-gray-500">Participants use /e/{slug}</p>
     </div>
     <div>
-      <label for="description" class="immich-form-label mb-1 block text-sm">Description</label>
+      <label for="description" class="immich-form-label mb-1.5 block">Description</label>
       <Textarea id="description" bind:value={description} rows={3} />
     </div>
     <div>
-      <label for="status" class="immich-form-label mb-1 block text-sm">Status</label>
+      <label for="status" class="immich-form-label mb-1.5 block">Status</label>
       <select id="status" bind:value={status} class="immich-form-input">
         <option value="draft">draft — hidden from participants</option>
         <option value="active">active — public page live</option>
         <option value="closed">closed</option>
       </select>
     </div>
-    <div class="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-3">
+    <div class="md-surface flex items-center justify-between gap-4 px-4 py-4">
       <div>
-        <p class="text-sm font-medium">Participant page</p>
-        <p class="text-xs text-gray-500">Allow guests to submit a selfie and receive their gallery</p>
+        <p class="md-title-small">Participant page</p>
+        <p class="md-label-medium text-gray-600">Allow guests to submit a selfie and receive their gallery</p>
       </div>
       <Switch bind:checked={participantPageEnabled} />
     </div>
-    <div class="rounded-xl border border-gray-200">
-      <div class="flex items-center justify-between px-4 py-3">
+    <div class="md-surface">
+      <div class="flex items-center justify-between gap-4 px-4 py-4">
         <div>
-          <p class="text-sm font-medium">Show all event photos to participants</p>
-          <p class="text-xs text-gray-500">Adds an "Event photos" section to every participant's gallery</p>
+          <p class="md-title-small">Show all event photos to participants</p>
+          <p class="md-label-medium text-gray-600">Adds an "Event photos" section to every participant's gallery</p>
         </div>
         <Switch bind:checked={participantsSeeAllPhotos} />
       </div>
 
       <!-- only meaningful once the gallery is shared at all -->
       {#if participantsSeeAllPhotos}
-        <div class="flex items-center justify-between border-t border-gray-100 px-4 py-3 ps-8">
+        <div class="flex items-center justify-between gap-4 border-t border-gray-100 px-4 py-4 ps-8">
           <div>
-            <p class="text-sm font-medium">Let them download those photos</p>
-            <p class="text-xs text-gray-500">
+            <p class="md-title-small">Let them download those photos</p>
+            <p class="md-label-medium text-gray-600">
               Off means view-only. Participants can always download photos they appear in.
             </p>
           </div>
@@ -113,27 +113,27 @@
     </div>
 
     <div>
-      <label for="distance" class="immich-form-label mb-1 block text-sm">Match distance override</label>
+      <label for="distance" class="immich-form-label mb-1.5 block">Match distance override</label>
       <Input id="distance" bind:value={matchMaxDistance} placeholder="default 0.5" />
-      <p class="mt-1 text-xs text-gray-400">
+      <p class="md-label-medium mt-1.5 text-gray-500">
         Lower (e.g. 0.45) for crowded events with false merges; leave empty for the default.
       </p>
     </div>
     <div>
-      <label for="min-faces" class="immich-form-label mb-1 block text-sm">Photos needed to form a person</label>
+      <label for="min-faces" class="immich-form-label mb-1.5 block">Photos needed to form a person</label>
       <Input id="min-faces" bind:value={minFaces} placeholder="default 1" />
-      <p class="mt-1 text-xs text-gray-400">
+      <p class="md-label-medium mt-1.5 text-gray-500">
         1 means every detected face becomes a person, so nobody is missed — use Merge on the People tab to combine
         duplicates. Raise it on very large events if single-photo people get noisy.
       </p>
     </div>
 
     <div class="flex gap-3">
-      <Button onclick={save} loading={saving} disabled={saving}>Save changes</Button>
+      <Button size="large" onclick={save} loading={saving} disabled={saving}>Save changes</Button>
     </div>
 
-    <div class="mt-6 rounded-xl border border-red-200 p-4">
-      <p class="mb-2 text-sm font-medium text-red-700">Danger zone</p>
+    <div class="mt-6 rounded-3xl border border-red-200 p-5">
+      <p class="md-title-small mb-3 text-red-700">Danger zone</p>
       <Button color="danger" variant="outline" size="small" onclick={removeEvent}>Delete event</Button>
     </div>
   </div>

@@ -34,12 +34,56 @@
   --breakpoint-sidebar: 850px;
 }
 
+/* Material 3 Expressive text field: 56dp tall, generous padding, tonal fill. */
 @utility immich-form-input {
-  @apply bg-gray-100 ring-1 ring-gray-200 transition outline-none focus-within:ring-primary focus-within:ring-1 disabled:cursor-not-allowed dark:bg-gray-800 dark:ring-neutral-900 dark:focus-within:ring-primary flex w-full items-center rounded-lg disabled:bg-gray-300 dark:disabled:bg-gray-900 dark:disabled:text-gray-200 flex-1 py-2.5 text-base pl-4 pr-4;
+  @apply bg-gray-100 ring-1 ring-gray-200 transition outline-none focus-within:ring-primary focus-within:ring-2 disabled:cursor-not-allowed dark:bg-gray-800 dark:ring-neutral-900 dark:focus-within:ring-primary flex w-full items-center rounded-2xl disabled:bg-gray-300 dark:disabled:bg-gray-900 dark:disabled:text-gray-200 flex-1 min-h-14 py-3.5 text-base pl-4 pr-4;
 }
 
 @utility immich-form-label {
-  @apply font-medium text-gray-500 dark:text-gray-300;
+  @apply text-sm font-medium tracking-[0.1px] text-gray-700 dark:text-gray-300;
+}
+
+/* --- Material 3 type scale (the subset this app uses) -------------------- */
+
+@utility md-display-small {
+  @apply text-[2.25rem] leading-[2.75rem] font-normal tracking-[0]; /* 36/44 */
+}
+
+@utility md-headline-small {
+  @apply text-2xl leading-8 font-normal tracking-[0]; /* 24/32 */
+}
+
+@utility md-title-large {
+  @apply text-[1.375rem] leading-7 font-medium tracking-[0]; /* 22/28 */
+}
+
+@utility md-title-medium {
+  @apply text-base leading-6 font-medium tracking-[0.15px];
+}
+
+@utility md-title-small {
+  @apply text-sm leading-5 font-medium tracking-[0.1px];
+}
+
+@utility md-body-large {
+  @apply text-base leading-6 font-normal tracking-[0.5px];
+}
+
+@utility md-body-medium {
+  @apply text-sm leading-5 font-normal tracking-[0.25px];
+}
+
+@utility md-label-large {
+  @apply text-sm leading-5 font-medium tracking-[0.1px];
+}
+
+@utility md-label-medium {
+  @apply text-xs leading-4 font-medium tracking-[0.5px];
+}
+
+/* Tonal surface used for cards and panels (MD3 surface-container). */
+@utility md-surface {
+  @apply rounded-3xl border border-gray-200/80 bg-white dark:border-white/10 dark:bg-neutral-900;
 }
 
 @utility immich-scrollbar {
@@ -77,6 +121,99 @@
   [role='button']:not(:disabled) {
     cursor: pointer;
   }
+}
+
+/* --- Material 3 Expressive button sizing ---------------------------------
+   @immich/ui ships compact buttons (px-3 py-1 at "tiny", h-8 w-8 icon
+   buttons), which land under the 48dp minimum touch target and read as
+   cramped next to MD3 typography. Rather than hand-fixing every call site,
+   raise the floor here: pill shape, MD3 label typography, and heights that
+   step 40 / 48 / 56dp.
+
+   Deliberately UNLAYERED. @layer base loses to Tailwind's utilities layer,
+   so `h-8 w-8` would keep winning over any height set there. Unlayered rules
+   outrank every layer, which is what it takes to override a utility class.
+   Anything that wants the raw size opts out with data-md-raw.            */
+
+button:not([data-md-raw]),
+a[role='button']:not([data-md-raw]) {
+  letter-spacing: 0.1px;
+}
+
+/* text/leading buttons rendered by @immich/ui's internal Button */
+button.rounded-md:not([data-md-raw]),
+a.rounded-md:not([data-md-raw]) {
+  border-radius: 9999px;
+  font-weight: 500;
+}
+
+/* size steps — @immich/ui encodes size in the padding utilities */
+button.px-3.py-1:not([data-md-raw]),
+a.px-3.py-1:not([data-md-raw]) {
+  min-height: 2.5rem; /* 40dp */
+  padding-inline: 1rem;
+  font-size: 0.875rem;
+}
+
+button.px-4.py-2:not([data-md-raw]),
+a.px-4.py-2:not([data-md-raw]) {
+  min-height: 2.5rem;
+  padding-inline: 1.25rem;
+  font-size: 0.875rem;
+}
+
+button.px-5.py-2:not([data-md-raw]),
+a.px-5.py-2:not([data-md-raw]) {
+  min-height: 3rem; /* 48dp */
+  padding-inline: 1.5rem;
+  font-size: 0.9375rem;
+}
+
+button.px-8:not([data-md-raw]),
+a.px-8:not([data-md-raw]) {
+  min-height: 3.5rem; /* 56dp */
+  padding-inline: 2rem;
+  font-size: 1rem;
+}
+
+/* Text fields: MD3 specifies 56dp for a filled field. @immich/ui's Input
+   renders ~40dp, which is short next to the button scale above. */
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([data-md-raw]),
+select:not([data-md-raw]),
+textarea:not([data-md-raw]) {
+  min-height: 3.5rem;
+}
+
+/* Switches keep MD3's 32dp track but need a 48dp touch target. Expand the
+   hit area with a transparent overlay rather than stretching the control,
+   which would distort the track. */
+[role='switch']:not([data-md-raw]) {
+  position: relative;
+}
+
+[role='switch']:not([data-md-raw])::after {
+  content: '';
+  position: absolute;
+  inset: -0.5rem;
+}
+
+/* icon-only buttons keep a square ratio but gain a real touch target */
+button.h-6.w-6:not([data-md-raw]),
+a.h-6.w-6:not([data-md-raw]) {
+  height: 2.25rem;
+  width: 2.25rem;
+}
+
+button.h-8.w-8:not([data-md-raw]),
+a.h-8.w-8:not([data-md-raw]) {
+  height: 2.5rem;
+  width: 2.5rem;
+}
+
+button.h-10.w-10:not([data-md-raw]),
+a.h-10.w-10:not([data-md-raw]) {
+  height: 2.75rem;
+  width: 2.75rem;
 }
 
 @layer utilities {

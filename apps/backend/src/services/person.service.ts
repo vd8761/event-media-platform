@@ -25,6 +25,14 @@ export class MergePeopleDto extends createZodDto(
   }),
 ) {}
 
+// Choose which detected face is cropped for this person's portrait
+// (Immich's "set as profile picture").
+export class SetPersonCoverDto extends createZodDto(
+  z.object({
+    faceId: z.string().uuid(),
+  }),
+) {}
+
 @Injectable()
 export class PersonService {
   constructor(
@@ -74,6 +82,26 @@ export class PersonService {
     }
     const updated = await this.personRepository.update(eventId, personId, dto);
     return { id: updated.id, name: updated.name, isHidden: updated.isHidden };
+  }
+
+  // Pick the face that represents this person. The crop is regenerated in the
+  // background, so the new portrait appears once PersonThumbnail runs.
+  async setCover(eventId: string, personId: string, faceId: string) {
+    const person = await this.personRepository.getById(eventId, personId);
+    if (!person) {
+      throw new NotFoundException('Person not found');
+    }
+
+    // the face must actually belong to this person, or the portrait would
+    // show somebody else
+    const face = await this.personRepository.getFaceOfPerson(personId, faceId);
+    if (!face) {
+      throw new BadRequestException('That face does not belong to this person');
+    }
+
+    await this.personRepository.update(eventId, personId, { faceAssetFaceId: faceId });
+    await this.jobRepository.queue({ name: JobName.PersonThumbnail, data: { personId } });
+    return { id: personId, faceAssetFaceId: faceId };
   }
 
   // Merge `ids` into `personId`: every face moves to the target, the sources

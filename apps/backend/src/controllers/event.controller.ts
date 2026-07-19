@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthDto } from 'src/dtos/auth.dto';
-import { CreateEventDto, ReprocessFacesDto, SetFeaturePhotoDto, UpdateEventDto } from 'src/dtos/event.dto';
+import { CreateEventDto, ReprocessFacesDto, UpdateEventDto } from 'src/dtos/event.dto';
 import { OrgRole } from 'src/enum';
 import { Auth, Authenticated } from 'src/middleware/auth.guard';
 import { EventRepository } from 'src/repositories/event.repository';
@@ -51,15 +51,6 @@ export class EventController {
   @Authenticated({ orgRole: OrgRole.Admin })
   reprocessFaces(@Param('eventId') eventId: string, @Body() dto: ReprocessFacesDto) {
     return this.eventService.reprocessFaces(eventId, dto.force ?? false);
-  }
-
-  // Shared event cover. Organisers set it here; participants set the same
-  // field through the public gallery route.
-  @Put('events/:eventId/feature-photo')
-  @HttpCode(204)
-  @Authenticated({ orgRole: OrgRole.Member })
-  setFeaturePhoto(@Param('eventId') eventId: string, @Body() dto: SetFeaturePhotoDto) {
-    return this.eventService.setFeaturePhoto(eventId, dto.assetId);
   }
 
   @Put('events/:eventId')

@@ -51,9 +51,3 @@ export class UpdateEventDto extends createZodDto(
   }),
 ) {}
 
-// Shared event cover photo — set by organisers and participants alike.
-export class SetFeaturePhotoDto extends createZodDto(
-  z.object({
-    assetId: z.string().uuid().nullable(),
-  }),
-) {}

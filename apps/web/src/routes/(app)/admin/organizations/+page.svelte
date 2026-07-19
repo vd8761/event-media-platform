@@ -68,7 +68,7 @@
   <Button leadingIcon={mdiPlus} onclick={openCreate}>New organization</Button>
 </div>
 
-<div class="overflow-x-auto rounded-2xl border border-gray-200">
+<div class="md-surface overflow-x-auto">
   <table class="w-full text-sm">
     <thead class="bg-immich-gray text-xs text-gray-500">
       <tr>

@@ -11,17 +11,20 @@ import {
 import archiver from 'archiver';
 import { unlink } from 'node:fs/promises';
 import { StagedUpload } from 'src/middleware/file-upload.interceptor';
-import { AssetFileType, EventStatus, JobName, ParticipantStatus } from 'src/enum';
+import { EventStatus, JobName, ParticipantStatus } from 'src/enum';
 import { AssetRepository } from 'src/repositories/asset.repository';
 import { CryptoRepository } from 'src/repositories/crypto.repository';
 import { EventRepository } from 'src/repositories/event.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
 import { ParticipantRepository } from 'src/repositories/participant.repository';
+import { PersonRepository } from 'src/repositories/person.repository';
 import { StorageRepository } from 'src/repositories/storage.repository';
 import { EventRow } from 'src/schema';
 import { AssetService } from 'src/services/asset.service';
 import { GalleryTokenService } from 'src/services/gallery-token.service';
+import { PersonService } from 'src/services/person.service';
+import { toFaceBoxes } from 'src/utils/face-box';
 import { RateLimiter } from 'src/utils/rate-limiter';
 import { StorageKeys } from 'src/utils/storage-keys';
 
@@ -44,6 +47,8 @@ export class PublicService {
     private jobRepository: JobRepository,
     private logger: LoggingRepository,
     private participantRepository: ParticipantRepository,
+    private personRepository: PersonRepository,
+    private personService: PersonService,
     private storageRepository: StorageRepository,
   ) {
     this.logger.setContext(PublicService.name);
@@ -58,23 +63,16 @@ export class PublicService {
       startsAt: event.startsAt,
       endsAt: event.endsAt,
       participantPageEnabled: event.participantPageEnabled,
-      coverUrl: await this.getFeatureUrl(event),
     };
   }
 
-  // Presigned preview of the event's cover photo, if one is set.
-  private async getFeatureUrl(event: EventRow): Promise<string | null> {
-    if (!event.featureAssetId) {
-      return null;
-    }
-    const files = await this.assetRepository.getFiles(event.featureAssetId);
-    const preview = files.find((file) => file.type === AssetFileType.Preview);
-    return preview
-      ? this.storageRepository.presignGet(preview.storageKey, { expiresIn: GALLERY_URL_TTL })
-      : null;
-  }
-
-  async submitSelfie(slug: string, email: string, staged: StagedUpload | undefined, clientIp: string) {
+  async submitSelfie(
+    slug: string,
+    email: string,
+    name: string,
+    staged: StagedUpload | undefined,
+    clientIp: string,
+  ) {
     try {
       if (!staged) {
         throw new BadRequestException('Missing selfie file');
@@ -104,6 +102,7 @@ export class PublicService {
       const participant = await this.participantRepository.upsert({
         eventId: event.id,
         email,
+        name: name.trim(),
         selfieKey,
         galleryTokenHash: token.hash,
         galleryTokenEnc: token.enc,
@@ -175,10 +174,9 @@ export class PublicService {
         // participants may browse the whole event only if the organiser says so
         showAllPhotos: event.participantsSeeAllPhotos,
         canDownloadAllPhotos: event.participantsSeeAllPhotos && event.participantsCanDownloadAll,
-        featureAssetId: event.featureAssetId,
-        coverUrl: await this.getFeatureUrl(event),
       },
       status: participant.status,
+      name: participant.name,
       assets,
     };
   }
@@ -193,25 +191,45 @@ export class PublicService {
     return this.assetService.list(event.id, limit, cursor);
   }
 
-  // Shared event cover photo. Participants may set it as well as organisers —
-  // it is one pick for the event, so the most recent choice wins.
-  async setFeaturePhoto(token: string, assetId: string | null): Promise<void> {
+  // Faces drawn over a photo in the participant's viewer. Names are always
+  // shown; whether a face is a link to that person's photos is decided
+  // client-side from event.showAllPhotos, and enforced by getPersonGallery.
+  async getGalleryAssetFaces(token: string, assetId: string) {
     const { participant, event } = await this.resolveGallery(token);
+    await this.assertViewable(participant.id, event, assetId);
+    return { faces: toFaceBoxes(await this.assetRepository.getFaces(assetId)) };
+  }
 
-    if (assetId) {
-      // A participant may only feature a photo they are allowed to see: one of
-      // their own matches, or any event photo when sharing is enabled.
-      const isOwn = await this.participantRepository.isMatchedAsset(participant.id, assetId);
-      if (!isOwn && !event.participantsSeeAllPhotos) {
-        throw new NotFoundException('Asset not found');
-      }
-      const asset = await this.assetRepository.getById(event.id, assetId);
-      if (!asset) {
-        throw new NotFoundException('Asset not found');
-      }
+  // All photos of one person, for a participant who tapped a face. Only
+  // available when the organiser shares the whole event — otherwise this would
+  // hand out photos the participant is not allowed to browse.
+  async getPersonGallery(token: string, personId: string) {
+    const { event } = await this.resolveGallery(token);
+    if (!event.participantsSeeAllPhotos) {
+      throw new NotFoundException('Event photos are not shared');
     }
 
-    await this.eventRepository.setFeatureAsset(event.id, assetId);
+    const person = await this.personRepository.getById(event.id, personId);
+    if (!person || person.isHidden) {
+      throw new NotFoundException('Person not found');
+    }
+
+    const assets = await this.personService.getAssets(event.id, personId);
+    return { person: { id: person.id, name: person.name }, assets };
+  }
+
+  // A participant may look at their own matches, and at any event photo once
+  // the organiser has shared the gallery.
+  private async assertViewable(participantId: string, event: EventRow, assetId: string): Promise<void> {
+    if (await this.participantRepository.isMatchedAsset(participantId, assetId)) {
+      return;
+    }
+    if (!event.participantsSeeAllPhotos) {
+      throw new NotFoundException('Asset not found');
+    }
+    if (!(await this.assetRepository.getById(event.id, assetId))) {
+      throw new NotFoundException('Asset not found');
+    }
   }
 
   // 302 presigned original. A participant's own matches are always

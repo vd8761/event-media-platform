@@ -77,8 +77,6 @@ export interface EventTable {
   status: Generated<EventStatus>;
   participantPageEnabled: Generated<boolean>;
   config: Generated<EventConfig>;
-  // Shared cover photo — participants and organisers both set it (migration 0004).
-  featureAssetId: string | null;
   participantsSeeAllPhotos: Generated<boolean>;
   participantsCanDownloadAll: Generated<boolean>;
   createdAt: CreatedAt;
@@ -182,6 +180,8 @@ export interface ParticipantTable {
   id: Generated<string>;
   eventId: string;
   email: string;
+  // Collected with the selfie; labels their face in the viewer (migration 0005).
+  name: Generated<string>;
   selfieKey: string | null;
   selfieEmbedding: string | null;
   galleryTokenHash: Buffer;

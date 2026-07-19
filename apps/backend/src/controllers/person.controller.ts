@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Put } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { OrgRole } from 'src/enum';
 import { Authenticated } from 'src/middleware/auth.guard';
-import { MergePeopleDto, PersonService, UpdatePersonDto } from 'src/services/person.service';
+import { MergePeopleDto, PersonService, SetPersonCoverDto, UpdatePersonDto } from 'src/services/person.service';
 
 @ApiTags('People')
 @Controller('events/:eventId/people')
@@ -25,6 +25,12 @@ export class PersonController {
   @Authenticated({ orgRole: OrgRole.Member })
   get(@Param('eventId') eventId: string, @Param('personId') personId: string) {
     return this.personService.get(eventId, personId);
+  }
+
+  @Put(':personId/cover')
+  @Authenticated({ orgRole: OrgRole.Admin })
+  setCover(@Param('eventId') eventId: string, @Param('personId') personId: string, @Body() dto: SetPersonCoverDto) {
+    return this.personService.setCover(eventId, personId, dto.faceId);
   }
 
   @Post(':personId/merge')

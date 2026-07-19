@@ -1,8 +1,9 @@
 <script lang="ts">
   // Full-screen asset viewer modelled on Immich's AssetViewer (docs/plan/10 §3):
-  // preview image with thumbhash placeholder, keyboard + swipe navigation,
-  // zoom-to-fill toggle, a slide-in detail panel and a real file download.
+  // preview image with thumbhash placeholder, face outlines, keyboard + swipe
+  // navigation, zoom, a detail panel and a real file download.
   import type { AssetDetail } from '$lib/api';
+  import FaceBoxes, { type FaceBox } from '$lib/components/FaceBoxes.svelte';
   import { Icon, IconButton, LoadingSpinner } from '@immich/ui';
   import {
     mdiAlertCircleOutline,
@@ -11,11 +12,10 @@
     mdiClose,
     mdiDelete,
     mdiDownload,
+    mdiFaceRecognition,
     mdiInformationOutline,
     mdiMagnifyMinusOutline,
     mdiMagnifyPlusOutline,
-    mdiStar,
-    mdiStarOutline,
   } from '@mdi/js';
   import { DateTime } from 'luxon';
   import { onMount } from 'svelte';
@@ -45,13 +45,15 @@
     downloadUrl: (assetId: string) => string;
     /** Optional — populates the info panel. Omitted on the public gallery. */
     loadDetail?: (assetId: string) => Promise<AssetDetail>;
+    /** Face outlines for the current photo. */
+    loadFaces?: (assetId: string) => Promise<FaceBox[]>;
+    /** Tapping a face opens that person; omit to show names without links. */
+    onOpenPerson?: (personId: string) => void;
+    /** Organiser-only: set this face as the person's portrait. */
+    onSetPersonCover?: (personId: string, faceId: string) => Promise<void>;
     canDelete?: boolean;
     /** False hides the download control (view-only event photos). */
     canDownload?: boolean;
-    /** Id of the event's shared cover photo, so the star can show as active. */
-    featureAssetId?: string | null;
-    /** Provided when the viewer may change the event cover. */
-    onSetFeature?: (assetId: string | null) => Promise<void>;
     onClose: () => void;
     onIndexChange: (index: number) => void;
     onDelete?: (assetId: string) => void;
@@ -62,44 +64,30 @@
     index,
     downloadUrl,
     loadDetail,
+    loadFaces,
+    onOpenPerson,
+    onSetPersonCover,
     canDelete = false,
     canDownload = true,
-    featureAssetId = null,
-    onSetFeature,
     onClose,
     onIndexChange,
     onDelete,
   }: Props = $props();
 
-
   const filename = $derived(assets[index]?.originalFilename ?? 'photo.jpg');
-
   const asset = $derived(assets[index]);
-  const isFeatured = $derived(!!asset && featureAssetId === asset.id);
-  let savingFeature = $state(false);
-
-  // Star toggles: feature the current photo, or clear it if it already is.
-  async function toggleFeature() {
-    if (!asset || !onSetFeature || savingFeature) {
-      return;
-    }
-    savingFeature = true;
-    try {
-      await onSetFeature(isFeatured ? null : asset.id);
-    } finally {
-      savingFeature = false;
-    }
-  }
 
   let showInfo = $state(false);
+  let showFaces = $state(true);
   let zoomed = $state(false);
   let imageLoaded = $state(false);
   let detail = $state<AssetDetail | null>(null);
+  let faces = $state<FaceBox[]>([]);
   let downloading = $state(false);
   let downloadError = $state('');
 
   // Reset per-image state whenever we move to a different asset, and fetch the
-  // detail record that backs the info panel.
+  // detail record and face boxes that overlay it.
   $effect(() => {
     const id = asset?.id;
     if (!id) {
@@ -108,19 +96,32 @@
     imageLoaded = false;
     zoomed = false;
     detail = null;
-    if (!loadDetail) {
-      return;
-    }
+    faces = [];
+
     let cancelled = false;
-    void loadDetail(id)
-      .then((result) => {
-        if (!cancelled) {
+    if (loadDetail) {
+      void loadDetail(id)
+        .then((result) => {
+          if (cancelled) {
+            return;
+          }
           detail = result;
-        }
-      })
-      .catch(() => {
-        // info panel simply stays empty — never block the image on this
-      });
+          // the org-side detail already carries the boxes — no second request
+          if (!loadFaces && result.faces) {
+            faces = result.faces;
+          }
+        })
+        .catch(() => {
+          // info panel simply stays empty — never block the image on this
+        });
+    }
+    if (loadFaces) {
+      void loadFaces(id)
+        .then((result) => !cancelled && (faces = result))
+        .catch(() => {
+          // no outlines is a fine fallback
+        });
+    }
     return () => {
       cancelled = true;
     };
@@ -173,6 +174,10 @@
         showInfo = !showInfo;
         break;
       }
+      case 'f': {
+        showFaces = !showFaces;
+        break;
+      }
       case 'd': {
         if (event.metaKey || event.ctrlKey) {
           return; // leave browser bookmark shortcut alone
@@ -187,7 +192,7 @@
   // filename. Anchor-clicking that cross-origin URL would open the image in a
   // tab on some browsers, so fetch it and save the blob instead.
   async function download() {
-    if (!asset || downloading) {
+    if (!asset || downloading || !canDownload) {
       return;
     }
     downloading = true;
@@ -211,6 +216,19 @@
     } finally {
       downloading = false;
     }
+  }
+
+  // Opening a person always replaces what the viewer is showing, so get out of
+  // the way first — otherwise the destination renders behind the overlay.
+  function openPerson(personId: string) {
+    onClose();
+    onOpenPerson?.(personId);
+  }
+
+  async function setCover(personId: string, faceId: string) {
+    await onSetPersonCover?.(personId, faceId);
+    // reflect the new cover in the overlay without a refetch
+    faces = faces.map((face) => ({ ...face, isCover: face.personId === personId && face.id === faceId }));
   }
 
   // touch swipe (mobile) — horizontal only, ignore vertical scrolls
@@ -254,14 +272,17 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if asset}
-  <div class="fixed inset-0 z-50 flex flex-col bg-black" role="dialog" aria-modal="true" aria-label="Photo viewer">
-    <!-- top bar -->
-    <header class="absolute inset-x-0 top-0 z-20 flex items-center justify-between bg-gradient-to-b from-black/70 to-transparent p-3">
-      <div class="flex min-w-0 items-center gap-2">
+  <!-- `viewer` scopes the icon-colour override below: @immich/ui's secondary
+       colour is near-black, which is invisible on this backdrop. -->
+  <div class="viewer fixed inset-0 z-50 flex flex-col bg-black" role="dialog" aria-modal="true" aria-label="Photo viewer">
+    <header
+      class="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-2 bg-gradient-to-b from-black/80 via-black/40 to-transparent p-2 sm:p-3"
+    >
+      <div class="flex min-w-0 items-center gap-1 sm:gap-2">
         <IconButton icon={mdiClose} aria-label="Close" variant="ghost" color="secondary" onclick={onClose} />
         <div class="min-w-0">
-          <p class="truncate text-sm font-medium text-white">{filename}</p>
-          <p class="text-xs text-white/60">
+          <p class="md-title-small truncate text-white">{filename}</p>
+          <p class="md-label-medium truncate text-white/60">
             {index + 1} of {assets.length}
             {#if asset.capturedAt}
               · {DateTime.fromISO(asset.capturedAt).toLocaleString(DateTime.DATETIME_MED)}
@@ -270,24 +291,24 @@
         </div>
       </div>
 
-      <div class="flex shrink-0 items-center gap-1">
+      <div class="flex shrink-0 items-center gap-0.5 sm:gap-1">
+        {#if faces.length > 0}
+          <IconButton
+            icon={mdiFaceRecognition}
+            aria-label={showFaces ? 'Hide faces' : 'Show faces'}
+            variant="ghost"
+            color={showFaces ? 'primary' : 'secondary'}
+            onclick={() => (showFaces = !showFaces)}
+          />
+        {/if}
         <IconButton
           icon={zoomed ? mdiMagnifyMinusOutline : mdiMagnifyPlusOutline}
           aria-label={zoomed ? 'Fit to screen' : 'Zoom to fill'}
           variant="ghost"
           color="secondary"
+          class="hidden sm:flex"
           onclick={() => (zoomed = !zoomed)}
         />
-        {#if onSetFeature}
-          <IconButton
-            icon={isFeatured ? mdiStar : mdiStarOutline}
-            aria-label={isFeatured ? 'Remove as event cover' : 'Set as event cover'}
-            variant="ghost"
-            color={isFeatured ? 'warning' : 'secondary'}
-            loading={savingFeature}
-            onclick={toggleFeature}
-          />
-        {/if}
         {#if canDownload}
           <IconButton
             icon={mdiDownload}
@@ -317,41 +338,55 @@
       </div>
     </header>
 
-    <div class="flex min-h-0 flex-1">
+    <div class="flex min-h-0 flex-1 flex-col md:flex-row">
       <!-- stage -->
       <div
-        class="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden"
+        class="relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden"
         ontouchstart={onTouchStart}
         ontouchend={onTouchEnd}
       >
         {#if index > 0}
           <button
-            class="absolute start-2 z-10 rounded-full bg-black/40 p-2 text-white transition hover:bg-black/70"
+            data-md-raw
+            class="absolute start-1 z-10 hidden h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white transition hover:bg-black/80 sm:flex"
             aria-label="Previous"
             onclick={previous}
           >
-            <Icon icon={mdiChevronLeft} size="2rem" />
+            <Icon icon={mdiChevronLeft} size="1.75rem" />
           </button>
         {/if}
 
         {#if asset.previewUrl}
-          <!-- thumbhash placeholder underneath so there is never a black flash -->
           {#if placeholder && !imageLoaded}
             <img src={placeholder} alt="" class="absolute h-full w-full object-contain blur-xl" />
             <div class="absolute"><LoadingSpinner size="giant" /></div>
           {/if}
-          <img
-            src={asset.previewUrl}
-            alt={filename}
-            class="max-h-full max-w-full transition-opacity duration-200 {imageLoaded ? 'opacity-100' : 'opacity-0'}
-              {zoomed ? 'h-full w-full cursor-zoom-out object-cover' : 'cursor-zoom-in object-contain'}"
-            onload={() => (imageLoaded = true)}
-            onclick={() => (zoomed = !zoomed)}
-          />
+
+          <!-- shrink-wraps the image so the face overlay maps 1:1 onto it -->
+          <div class="relative flex max-h-full max-w-full items-center justify-center">
+            <img
+              src={asset.previewUrl}
+              alt={filename}
+              class="block max-h-full max-w-full transition-opacity duration-200 {imageLoaded
+                ? 'opacity-100'
+                : 'opacity-0'}
+                {zoomed ? 'h-screen w-screen cursor-zoom-out object-cover' : 'cursor-zoom-in object-contain'}"
+              onload={() => (imageLoaded = true)}
+              onclick={() => (zoomed = !zoomed)}
+            />
+            <!-- boxes are only accurate while the image is letterboxed -->
+            {#if showFaces && imageLoaded && !zoomed && faces.length > 0}
+              <FaceBoxes
+                {faces}
+                onOpenPerson={onOpenPerson ? openPerson : undefined}
+                onSetCover={onSetPersonCover ? setCover : undefined}
+              />
+            {/if}
+          </div>
         {:else}
-          <div class="flex flex-col items-center gap-3 text-white/70">
+          <div class="flex flex-col items-center gap-3 px-6 text-center text-white/70">
             <Icon icon={mdiAlertCircleOutline} size="3rem" />
-            <p class="text-sm">
+            <p class="md-body-medium">
               {asset.status === 'failed' ? 'This photo could not be processed.' : 'Still processing — check back shortly.'}
             </p>
           </div>
@@ -359,59 +394,58 @@
 
         {#if index < assets.length - 1}
           <button
-            class="absolute end-2 z-10 rounded-full bg-black/40 p-2 text-white transition hover:bg-black/70"
+            data-md-raw
+            class="absolute end-1 z-10 hidden h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white transition hover:bg-black/80 sm:flex"
             aria-label="Next"
             onclick={next}
           >
-            <Icon icon={mdiChevronRight} size="2rem" />
+            <Icon icon={mdiChevronRight} size="1.75rem" />
           </button>
         {/if}
 
         {#if downloadError}
-          <p class="absolute bottom-4 rounded-lg bg-red-600/90 px-3 py-1.5 text-sm text-white">{downloadError}</p>
+          <p class="md-body-medium absolute bottom-4 rounded-xl bg-red-600/90 px-4 py-2 text-white">{downloadError}</p>
         {/if}
       </div>
 
-      <!-- info panel -->
+      <!-- info panel: side drawer on desktop, bottom sheet on mobile -->
       {#if showInfo}
-        <aside class="immich-scrollbar w-80 shrink-0 overflow-y-auto border-s border-white/10 bg-neutral-900 p-5 text-sm text-white">
-          <h2 class="mb-4 text-base font-semibold">Details</h2>
+        <aside
+          class="immich-scrollbar max-h-[45vh] shrink-0 overflow-y-auto border-t border-white/10 bg-neutral-900 p-5 text-white md:max-h-none md:w-80 md:border-t-0 md:border-s"
+        >
+          <h2 class="md-title-medium mb-4">Details</h2>
 
-          <dl class="space-y-3">
+          <dl class="space-y-3.5">
             <div>
-              <dt class="text-xs text-white/50">File name</dt>
-              <dd class="break-all">{filename}</dd>
+              <dt class="md-label-medium text-white/50">File name</dt>
+              <dd class="md-body-medium break-all">{filename}</dd>
             </div>
             {#if asset.width && asset.height}
               <div>
-                <dt class="text-xs text-white/50">Dimensions</dt>
-                <dd>{asset.width} × {asset.height}</dd>
+                <dt class="md-label-medium text-white/50">Dimensions</dt>
+                <dd class="md-body-medium">{asset.width} × {asset.height}</dd>
               </div>
             {/if}
             {#if detail}
               <div>
-                <dt class="text-xs text-white/50">Size</dt>
-                <dd>{formatBytes(detail.fileSize)} · {detail.mimeType}</dd>
+                <dt class="md-label-medium text-white/50">Size</dt>
+                <dd class="md-body-medium">{formatBytes(detail.fileSize)} · {detail.mimeType}</dd>
               </div>
               {#if detail.exif?.make || detail.exif?.model}
                 <div>
-                  <dt class="text-xs text-white/50">Camera</dt>
-                  <dd>{[detail.exif.make, detail.exif.model].filter(Boolean).join(' ')}</dd>
+                  <dt class="md-label-medium text-white/50">Camera</dt>
+                  <dd class="md-body-medium">{[detail.exif.make, detail.exif.model].filter(Boolean).join(' ')}</dd>
                 </div>
               {/if}
-              <div>
-                <dt class="text-xs text-white/50">Source</dt>
-                <dd class="capitalize">{detail.source}</dd>
-              </div>
             {/if}
             <div>
-              <dt class="text-xs text-white/50">Added</dt>
-              <dd>{DateTime.fromISO(asset.createdAt).toLocaleString(DateTime.DATETIME_MED)}</dd>
+              <dt class="md-label-medium text-white/50">Added</dt>
+              <dd class="md-body-medium">{DateTime.fromISO(asset.createdAt).toLocaleString(DateTime.DATETIME_MED)}</dd>
             </div>
             {#if asset.faceCount !== undefined}
               <div>
-                <dt class="text-xs text-white/50">Face detection</dt>
-                <dd>
+                <dt class="md-label-medium text-white/50">Face detection</dt>
+                <dd class="md-body-medium">
                   {#if asset.facesDetectedAt}
                     {asset.faceCount === 0
                       ? 'No faces found'
@@ -424,18 +458,18 @@
             {/if}
           </dl>
 
-          {#if detail && detail.people.length > 0}
-            <h3 class="mt-6 mb-3 text-xs font-medium tracking-wide text-white/50 uppercase">People</h3>
-            <div class="flex flex-wrap gap-3">
-              {#each detail.people as person (person.id)}
-                <div class="w-16 text-center">
-                  {#if person.thumbnailUrl}
-                    <img src={person.thumbnailUrl} alt={person.name} class="h-16 w-16 rounded-full object-cover" />
-                  {:else}
-                    <div class="h-16 w-16 rounded-full bg-white/10"></div>
-                  {/if}
-                  <p class="mt-1 truncate text-xs">{person.name || 'Unnamed'}</p>
-                </div>
+          {#if faces.length > 0}
+            <h3 class="md-label-medium mt-6 mb-3 text-white/50 uppercase">People in this photo</h3>
+            <div class="flex flex-wrap gap-2">
+              {#each faces as face (face.id)}
+                <button
+                  data-md-raw
+                  class="md-label-large rounded-full bg-white/10 px-3 py-1.5 transition hover:bg-white/20 disabled:cursor-default disabled:hover:bg-white/10"
+                  disabled={!face.personId || !onOpenPerson}
+                  onclick={() => face.personId && openPerson(face.personId)}
+                >
+                  {face.name || 'Unnamed'}
+                </button>
               {/each}
             </div>
           {/if}
@@ -444,3 +478,26 @@
     </div>
   </div>
 {/if}
+
+<style>
+  /* @immich/ui maps ghost+secondary to a near-black foreground, which
+     disappears against the viewer's black backdrop. Force light-on-dark for
+     every control inside the viewer chrome, including their hover states. */
+  .viewer :global(button) {
+    color: rgba(255, 255, 255, 0.92);
+  }
+
+  .viewer :global(button:hover:not(:disabled)) {
+    background-color: rgba(255, 255, 255, 0.14);
+    color: #fff;
+  }
+
+  /* keep the semantic colours that are meant to stand out */
+  .viewer :global(button[aria-label='Delete']) {
+    color: rgb(248, 113, 113);
+  }
+
+  .viewer :global(aside button:disabled) {
+    color: rgba(255, 255, 255, 0.6);
+  }
+</style>

@@ -44,12 +44,12 @@
 {#if loading}
   <div class="flex justify-center py-20"><LoadingSpinner size="giant" /></div>
 {:else if participants.length === 0}
-  <div class="rounded-2xl border border-dashed border-gray-300 p-16 text-center text-gray-500">
+  <div class="md-surface md-body-large border-dashed p-10 text-center text-gray-500 sm:p-16">
     <Icon icon={mdiAccountGroup} size="2.5rem" class="mx-auto mb-3 text-gray-300" />
     No participants yet — share the public link <span class="font-mono text-sm">/e/{data.event.slug}</span> with your guests.
   </div>
 {:else}
-  <div class="overflow-x-auto rounded-2xl border border-gray-200">
+  <div class="md-surface overflow-x-auto">
     <table class="w-full text-sm">
       <thead class="bg-immich-gray text-start text-xs text-gray-500">
         <tr>

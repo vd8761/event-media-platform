@@ -23,6 +23,8 @@ import { z } from 'zod';
 export class SubmitSelfieDto extends createZodDto(
   z.object({
     email: z.string().email().max(320),
+    // required: it labels their face for everyone viewing the photos
+    name: z.string().trim().min(1).max(200),
   }),
 ) {}
 
@@ -33,11 +35,6 @@ export class GalleryZipDto extends createZodDto(
   }),
 ) {}
 
-export class GalleryFeaturePhotoDto extends createZodDto(
-  z.object({
-    assetId: z.string().uuid().nullable(),
-  }),
-) {}
 
 export class GalleryAssetsQueryDto extends createZodDto(
   z.object({
@@ -64,6 +61,7 @@ export class PublicController {
     return this.publicService.submitSelfie(
       slug,
       dto.email,
+      dto.name,
       getStagedUpload(request, SELFIE_UPLOAD_FIELD),
       request.ip ?? '',
     );
@@ -98,9 +96,15 @@ export class PublicController {
     return this.publicService.getEventGallery(token, query.limit, query.cursor);
   }
 
-  @Put('gallery/:token/feature-photo')
-  @HttpCode(204)
-  setFeaturePhoto(@Param('token') token: string, @Body() dto: GalleryFeaturePhotoDto) {
-    return this.publicService.setFeaturePhoto(token, dto.assetId);
+  // Face boxes for the viewer overlay.
+  @Get('gallery/:token/assets/:assetId/faces')
+  getAssetFaces(@Param('token') token: string, @Param('assetId') assetId: string) {
+    return this.publicService.getGalleryAssetFaces(token, assetId);
+  }
+
+  // Photos of one person — only when the organiser shares the whole event.
+  @Get('gallery/:token/people/:personId')
+  getPerson(@Param('token') token: string, @Param('personId') personId: string) {
+    return this.publicService.getPersonGallery(token, personId);
   }
 }

@@ -2,7 +2,7 @@
   // Jobs dashboard, modelled on Immich's admin jobs page: one card per queue
   // with live counts, what it is working on right now, throughput and controls.
   import { api, type JobQueue, type SystemStatus } from '$lib/api';
-  import { Badge, Button, Heading, Icon, LoadingSpinner } from '@immich/ui';
+  import { Badge, Button, Icon, LoadingSpinner } from '@immich/ui';
   import {
     mdiAlertCircleOutline,
     mdiChevronDown,
@@ -88,9 +88,9 @@
 
 <svelte:head><title>Jobs — EventLens</title></svelte:head>
 
-<div class="mb-6 flex items-center justify-between">
-  <Heading size="large">Jobs</Heading>
-  <Button size="small" variant="ghost" leadingIcon={mdiRefresh} onclick={refresh}>Refresh</Button>
+<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+  <h1 class="md-headline-small">Jobs</h1>
+  <Button variant="ghost" leadingIcon={mdiRefresh} onclick={refresh}>Refresh</Button>
 </div>
 
 {#if error}
@@ -104,28 +104,28 @@
   <div class="flex justify-center py-20"><LoadingSpinner size="giant" /></div>
 {:else}
   <!-- headline counters -->
-  <div class="mb-6 grid grid-cols-3 gap-4">
-    <div class="rounded-2xl border border-gray-200 p-4">
-      <p class="text-xs text-gray-500">Active</p>
-      <p class="mt-1 text-2xl font-semibold {totals.active > 0 ? 'text-immich-primary' : ''}">{totals.active}</p>
+  <div class="mb-6 grid grid-cols-3 gap-3 sm:gap-4">
+    <div class="md-surface p-4">
+      <p class="md-label-medium text-gray-600">Active</p>
+      <p class="md-display-small mt-1 {totals.active > 0 ? 'text-immich-primary' : ''}">{totals.active}</p>
     </div>
-    <div class="rounded-2xl border border-gray-200 p-4">
-      <p class="text-xs text-gray-500">Pending</p>
-      <p class="mt-1 text-2xl font-semibold">{totals.waiting}</p>
+    <div class="md-surface p-4">
+      <p class="md-label-medium text-gray-600">Pending</p>
+      <p class="md-display-small mt-1">{totals.waiting}</p>
     </div>
-    <div class="rounded-2xl border border-gray-200 p-4">
-      <p class="text-xs text-gray-500">Failed</p>
-      <p class="mt-1 text-2xl font-semibold {totals.failed > 0 ? 'text-red-600' : ''}">{totals.failed}</p>
+    <div class="md-surface p-4">
+      <p class="md-label-medium text-gray-600">Failed</p>
+      <p class="md-display-small mt-1 {totals.failed > 0 ? 'text-red-600' : ''}">{totals.failed}</p>
     </div>
   </div>
 
   <!-- system status -->
   {#if system}
     <div class="mb-6 grid gap-4 lg:grid-cols-2">
-      <div class="rounded-2xl border border-gray-200 p-4">
+      <div class="md-surface p-4">
         <div class="mb-3 flex items-center gap-2">
           <Icon icon={mdiMemory} size="1.15rem" class="text-gray-400" />
-          <h2 class="text-sm font-semibold">Machine learning</h2>
+          <h2 class="md-title-medium">Machine learning</h2>
           <Badge color={system.machineLearning.device === 'cuda' ? 'success' : 'secondary'} size="small">
             {system.machineLearning.device.toUpperCase()}
           </Badge>
@@ -148,10 +148,10 @@
         </div>
       </div>
 
-      <div class="rounded-2xl border border-gray-200 p-4">
+      <div class="md-surface p-4">
         <div class="mb-3 flex items-center gap-2">
           <Icon icon={mdiServerNetwork} size="1.15rem" class="text-gray-400" />
-          <h2 class="text-sm font-semibold">Server</h2>
+          <h2 class="md-title-medium">Server</h2>
         </div>
         <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <div class="col-span-2">
@@ -206,11 +206,11 @@
   <div class="space-y-3">
     {#each queues as queue (queue.name)}
       {@const running = queue.counts.active > 0}
-      <div class="rounded-2xl border border-gray-200 {running ? 'border-immich-primary/40' : ''}">
+      <div class="md-surface {running ? 'border-immich-primary/60' : ''}">
         <div class="flex flex-wrap items-start justify-between gap-4 p-4">
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-2">
-              <h2 class="text-sm font-semibold">{queue.label}</h2>
+              <h2 class="md-title-medium">{queue.label}</h2>
               {#if queue.isPaused}
                 <Badge color="warning" size="small">paused</Badge>
               {:else if running}
@@ -221,7 +221,7 @@
               {/if}
               <span class="text-xs text-gray-400">{queue.role} · concurrency {queue.concurrency}</span>
             </div>
-            <p class="mt-1 text-xs text-gray-500">{queue.description}</p>
+            <p class="md-body-medium mt-1 text-gray-600">{queue.description}</p>
 
             <!-- counts -->
             <div class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs">
@@ -250,20 +250,20 @@
 
           <div class="flex shrink-0 items-center gap-1">
             {#if queue.isPaused}
-              <Button size="tiny" variant="ghost" leadingIcon={mdiPlay} onclick={() => act(queue.name, 'resume')}>
+              <Button size="small" variant="ghost" leadingIcon={mdiPlay} onclick={() => act(queue.name, 'resume')}>
                 Resume
               </Button>
             {:else}
-              <Button size="tiny" variant="ghost" leadingIcon={mdiPause} onclick={() => act(queue.name, 'pause')}>
+              <Button size="small" variant="ghost" leadingIcon={mdiPause} onclick={() => act(queue.name, 'pause')}>
                 Pause
               </Button>
             {/if}
             {#if queue.counts.failed > 0}
-              <Button size="tiny" variant="ghost" leadingIcon={mdiRefresh} onclick={() => act(queue.name, 'retry-failed')}>
+              <Button size="small" variant="ghost" leadingIcon={mdiRefresh} onclick={() => act(queue.name, 'retry-failed')}>
                 Retry
               </Button>
               <Button
-                size="tiny"
+                size="small"
                 variant="ghost"
                 color="danger"
                 leadingIcon={mdiDeleteSweep}
@@ -272,7 +272,7 @@
                 Clear
               </Button>
             {/if}
-            <Button size="tiny" variant="ghost" color="secondary" onclick={() => toggle(queue)}>
+            <Button size="small" variant="ghost" color="secondary" onclick={() => toggle(queue)}>
               <Icon icon={mdiChevronDown} size="1.1rem" class={expanded[queue.name] ? 'rotate-180' : ''} />
             </Button>
           </div>

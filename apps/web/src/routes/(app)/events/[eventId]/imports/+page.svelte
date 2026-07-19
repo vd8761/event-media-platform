@@ -127,7 +127,7 @@
 {#if loading}
   <div class="flex justify-center py-16"><LoadingSpinner size="giant" /></div>
 {:else if imports.length === 0}
-  <div class="rounded-2xl border border-dashed border-gray-300 p-16 text-center text-gray-500">
+  <div class="md-surface md-body-large border-dashed p-10 text-center text-gray-500 sm:p-16">
     <Icon icon={mdiCloudDownloadOutline} size="2.5rem" class="mx-auto mb-3 text-gray-300" />
     No imports yet.
   </div>
@@ -135,7 +135,7 @@
   <div class="space-y-3">
     {#each imports as job (job.id)}
       {@const finished = job.doneFiles + job.skippedFiles + job.failedFiles}
-      <div class="rounded-2xl border border-gray-200 p-4">
+      <div class="md-surface p-4">
         <div class="flex items-center justify-between gap-3">
           <div class="min-w-0">
             <div class="flex items-center gap-2">
@@ -153,12 +153,12 @@
           </div>
           <div class="flex shrink-0 items-center gap-2">
             {#if job.failedFiles > 0}
-              <Button size="tiny" variant="ghost" onclick={() => toggleDetails(job)}>
+              <Button size="small" variant="ghost" onclick={() => toggleDetails(job)}>
                 {expanded === job.id ? 'Hide failures' : 'Show failures'}
               </Button>
             {/if}
             {#if job.status === 'listing' || job.status === 'importing'}
-              <Button size="tiny" variant="ghost" color="danger" onclick={() => cancelImport(job)}>Cancel</Button>
+              <Button size="small" variant="ghost" color="danger" onclick={() => cancelImport(job)}>Cancel</Button>
             {/if}
           </div>
         </div>

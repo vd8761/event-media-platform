@@ -49,16 +49,16 @@
         { label: 'Participants', value: stats.participants },
         { label: 'Storage', value: formatBytes(stats.storageBytes) },
       ] as stat (stat.label)}
-        <div class="rounded-2xl border border-gray-200 p-4">
-          <p class="text-xs text-gray-500">{stat.label}</p>
-          <p class="mt-1 text-2xl font-semibold">{stat.value}</p>
+        <div class="md-surface p-4">
+          <p class="md-label-medium text-gray-600">{stat.label}</p>
+          <p class="md-display-small mt-1">{stat.value}</p>
         </div>
       {/each}
     </div>
   {/if}
 
   <Heading size="small" class="mb-3">Queues</Heading>
-  <div class="overflow-x-auto rounded-2xl border border-gray-200">
+  <div class="md-surface overflow-x-auto">
     <table class="w-full text-sm">
       <thead class="bg-immich-gray text-xs text-gray-500">
         <tr>
@@ -84,13 +84,13 @@
             <td class="px-4 py-2.5">
               <div class="flex justify-end gap-1">
                 {#if counts.isPaused}
-                  <Button size="tiny" variant="ghost" onclick={() => action(name, 'resume')}>Resume</Button>
+                  <Button size="small" variant="ghost" onclick={() => action(name, 'resume')}>Resume</Button>
                 {:else}
-                  <Button size="tiny" variant="ghost" onclick={() => action(name, 'pause')}>Pause</Button>
+                  <Button size="small" variant="ghost" onclick={() => action(name, 'pause')}>Pause</Button>
                 {/if}
                 {#if counts.failed > 0}
-                  <Button size="tiny" variant="ghost" onclick={() => action(name, 'retry-failed')}>Retry</Button>
-                  <Button size="tiny" variant="ghost" color="danger" onclick={() => action(name, 'clear-failed')}>Clear</Button>
+                  <Button size="small" variant="ghost" onclick={() => action(name, 'retry-failed')}>Retry</Button>
+                  <Button size="small" variant="ghost" color="danger" onclick={() => action(name, 'clear-failed')}>Clear</Button>
                 {/if}
               </div>
             </td>

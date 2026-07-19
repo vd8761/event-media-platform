@@ -128,6 +128,16 @@ export class PersonRepository {
     await this.db.deleteFrom('person').where('id', 'in', ids).execute();
   }
 
+  getFaceOfPerson(personId: string, faceId: string) {
+    return this.db
+      .selectFrom('assetFace')
+      .select('id')
+      .where('id', '=', faceId)
+      .where('personId', '=', personId)
+      .where('deletedAt', 'is', null)
+      .executeTakeFirst();
+  }
+
   // Move every face of `sourceIds` onto `targetId` in one statement — the
   // merge path (Immich PersonService.mergePerson). Returns rows moved.
   async reassignFacesOfPeople(targetId: string, sourceIds: string[]): Promise<number> {

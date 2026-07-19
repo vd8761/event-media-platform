@@ -58,15 +58,15 @@
 
 <svelte:head><title>Events — EventLens</title></svelte:head>
 
-<div class="mb-6 flex items-center justify-between">
-  <Heading size="large">Events</Heading>
+<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+  <h1 class="md-headline-small">Events</h1>
   {#if creatableOrgs.length > 0}
-    <Button leadingIcon={mdiPlus} onclick={openCreate}>New event</Button>
+    <Button size="large" leadingIcon={mdiPlus} onclick={openCreate}>New event</Button>
   {/if}
 </div>
 
 {#if data.events.length === 0}
-  <div class="rounded-2xl border border-dashed border-gray-300 p-16 text-center text-gray-500">
+  <div class="md-body-large md-surface border-dashed p-10 text-center text-gray-500 sm:p-16">
     {#if creatableOrgs.length > 0}
       No events yet — create your first one.
     {:else if data.me.isSuperAdmin}
@@ -78,21 +78,21 @@
     {/if}
   </div>
 {:else}
-  <div class="grid grid-auto-fill-72 gap-4">
+  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
     {#each data.events as event (event.id)}
       <a
         href={`/events/${event.id}`}
-        class="rounded-2xl border border-gray-200 p-5 transition hover:border-immich-primary/50 hover:shadow-md"
+        class="md-surface hover:border-immich-primary/50 p-5 transition hover:shadow-md"
       >
         <div class="mb-2 flex items-start justify-between gap-2">
-          <h2 class="text-lg font-semibold">{event.name}</h2>
+          <h2 class="md-title-large min-w-0 truncate">{event.name}</h2>
           <Badge color={statusColor[event.status] ?? 'secondary'}>{event.status}</Badge>
         </div>
-        {#if event.orgName}<p class="text-xs text-gray-400">{event.orgName}</p>{/if}
-        <p class="mt-2 text-sm text-gray-500">
+        {#if event.orgName}<p class="md-label-medium text-gray-400">{event.orgName}</p>{/if}
+        <p class="md-body-medium mt-2 text-gray-500">
           {event.startsAt ? DateTime.fromISO(event.startsAt).toLocaleString(DateTime.DATE_MED) : 'No date set'}
         </p>
-        <p class="mt-1 text-xs text-gray-400">/e/{event.slug}</p>
+        <p class="md-label-medium mt-1 truncate text-gray-400">/e/{event.slug}</p>
       </a>
     {/each}
   </div>

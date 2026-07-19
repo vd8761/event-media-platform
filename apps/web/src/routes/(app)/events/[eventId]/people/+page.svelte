@@ -172,21 +172,26 @@
 {#if loading}
   <div class="flex justify-center py-20"><LoadingSpinner size="giant" /></div>
 {:else}
-  <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
-    <h2 class="text-sm font-semibold">People</h2>
+  <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <h2 class="md-title-large">People</h2>
     {#if canManage && people.length > 1}
       {#if merging}
         <div class="flex flex-wrap items-center gap-2">
-          <span class="text-xs text-gray-500">
-            {picked.size < 2 ? 'Pick two or more people to merge' : `${picked.size} selected`}
+          <span class="md-body-medium text-gray-600">
+            {picked.size < 2 ? 'Pick two or more people' : `${picked.size} selected`}
           </span>
-          <Button size="tiny" variant="ghost" color="secondary" onclick={exitMerge}>Cancel</Button>
-          <Button size="tiny" leadingIcon={mdiMerge} disabled={picked.size < 2} onclick={() => (mergeTargetId ||= mergeTarget?.id ?? null)}>
+          <Button size="small" variant="ghost" color="secondary" onclick={exitMerge}>Cancel</Button>
+          <Button
+            size="small"
+            leadingIcon={mdiMerge}
+            disabled={picked.size < 2}
+            onclick={() => (mergeTargetId ||= mergeTarget?.id ?? null)}
+          >
             Merge {picked.size > 1 ? picked.size : ''}
           </Button>
         </div>
       {:else}
-        <Button size="tiny" variant="outline" leadingIcon={mdiMerge} onclick={() => (merging = true)}>
+        <Button size="small" variant="outline" leadingIcon={mdiMerge} onclick={() => (merging = true)}>
           Merge people
         </Button>
       {/if}
@@ -233,8 +238,8 @@
                   </span>
                 {/if}
               </div>
-              <p class="mt-2 truncate text-sm font-medium">{person.name || 'Unnamed'}</p>
-              <p class="text-xs text-gray-400">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
+              <p class="md-title-small mt-2 truncate">{person.name || 'Unnamed'}</p>
+              <p class="md-label-medium text-gray-500">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
             </button>
           {:else}
             <a class="block w-full" href={`/events/${eventId}/people/${person.id}`}>
@@ -252,8 +257,8 @@
                   <LoadingSpinner />
                 </div>
               {/if}
-              <p class="mt-2 truncate text-sm font-medium">{person.name || 'Unnamed'}</p>
-              <p class="text-xs text-gray-400">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
+              <p class="md-title-small mt-2 truncate">{person.name || 'Unnamed'}</p>
+              <p class="md-label-medium text-gray-500">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
             </a>
             {#if canManage}
               <div class="absolute end-1 top-1 hidden gap-1 group-hover:flex">
@@ -282,12 +287,12 @@
   {/if}
 
   <!-- per-photo detection state -->
-  <h2 class="mb-3 text-sm font-semibold">Photo processing</h2>
+  <h2 class="md-title-large mb-4">Photo processing</h2>
   <div class="mb-4 flex flex-wrap gap-2">
     {#each tabs as item (item.id)}
       <button
-        class="rounded-full px-3.5 py-1.5 text-xs font-medium transition
-          {tab === item.id ? 'bg-immich-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}"
+        class="md-label-large min-h-10 rounded-full px-4 transition
+          {tab === item.id ? 'bg-immich-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
         onclick={() => selectTab(item.id)}
       >
         {item.label}

@@ -26,11 +26,26 @@
   let refreshedOnce = false;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
 
-  type Tab = 'mine' | 'event';
+  type Tab = 'mine' | 'event' | 'person';
   let tab = $state<Tab>('mine');
   let eventAssets = $state<GalleryAsset[]>([]);
   let eventCursor = $state<string | null>(null);
   let eventLoading = $state(false);
+
+  // set when a face is tapped — only reachable while the event is shared
+  let personView = $state<{ id: string; name: string; assets: GalleryAsset[] } | null>(null);
+
+  async function openPerson(personId: string) {
+    try {
+      const result = await api.public.person(token, personId);
+      personView = { id: result.person.id, name: result.person.name, assets: result.assets };
+      tab = 'person';
+      viewerIndex = -1;
+      clearSelection();
+    } catch {
+      // sharing turned off between render and tap — stay put
+    }
+  }
 
   let selecting = $state(false);
   let selected = $state(new Set<string>());
@@ -41,7 +56,9 @@
   // Their own photos are always downloadable; the event tab depends on the
   // organiser's second toggle.
   const canDownloadCurrent = $derived(tab === 'mine' || canDownloadAll);
-  const assets = $derived(tab === 'mine' ? (gallery?.assets ?? []) : eventAssets);
+  const assets = $derived(
+    tab === 'mine' ? (gallery?.assets ?? []) : tab === 'person' ? (personView?.assets ?? []) : eventAssets,
+  );
   const stillWorking = $derived(gallery?.status === 'processing' || gallery?.status === 'pending_match');
 
   async function refresh() {
@@ -69,8 +86,9 @@
     }
   }
 
-  async function selectTab(next: Tab) {
+  async function selectTab(next: 'mine' | 'event') {
     tab = next;
+    personView = null;
     clearSelection();
     if (next === 'event' && eventAssets.length === 0) {
       await loadEventAssets();
@@ -126,13 +144,6 @@
     setTimeout(() => (refreshedOnce = false), 60_000);
   }
 
-  async function setFeature(assetId: string | null) {
-    await api.public.setFeaturePhoto(token, assetId);
-    if (gallery) {
-      gallery.event.featureAssetId = assetId;
-    }
-  }
-
   onMount(() => {
     void refresh();
     // the gallery is live — keep it fresh while processing continues
@@ -151,31 +162,33 @@
   <div class="bg-immich-bg flex min-h-screen items-center justify-center"><LoadingSpinner size="giant" /></div>
 {:else}
   <div class="bg-immich-bg flex min-h-screen">
-    <!-- sidebar -->
-    <aside class="bg-immich-gray fixed inset-y-0 start-0 z-10 hidden w-60 flex-col border-e border-gray-100 px-3 py-5 md:flex">
+    <!-- sidebar (desktop) -->
+    <aside class="bg-immich-gray fixed inset-y-0 start-0 z-10 hidden w-64 flex-col border-e border-gray-100 px-3 py-5 md:flex">
       <div class="mb-8 px-3">
-        <p class="text-immich-primary text-lg font-semibold">EventLens</p>
-        <p class="mt-1 truncate text-xs text-gray-500">{gallery.event.name}</p>
+        <p class="md-title-large text-immich-primary">EventLens</p>
+        <p class="md-body-medium mt-1 truncate text-gray-500">{gallery.event.name}</p>
       </div>
 
       <nav class="flex flex-1 flex-col gap-1">
         <button
-          class="flex items-center gap-3 rounded-full px-4 py-2.5 text-sm font-medium transition
-            {tab === 'mine' ? 'bg-immich-primary/15 text-immich-primary' : 'text-gray-600 hover:bg-gray-200/60'}"
+          class="md-label-large flex min-h-14 items-center gap-3 rounded-full px-4 transition
+            {tab === 'mine' ? 'bg-immich-primary/15 text-immich-primary' : 'text-gray-700 hover:bg-gray-200/60'}"
           onclick={() => selectTab('mine')}
         >
-          <Icon icon={mdiAccountBox} size="1.25rem" />
+          <Icon icon={mdiAccountBox} size="1.375rem" />
           Your photos
-          <span class="ms-auto text-xs opacity-70">{gallery.assets.length}</span>
+          <span class="md-label-medium ms-auto opacity-70">{gallery.assets.length}</span>
         </button>
 
         {#if showAll}
           <button
-            class="flex items-center gap-3 rounded-full px-4 py-2.5 text-sm font-medium transition
-              {tab === 'event' ? 'bg-immich-primary/15 text-immich-primary' : 'text-gray-600 hover:bg-gray-200/60'}"
+            class="md-label-large flex min-h-14 items-center gap-3 rounded-full px-4 transition
+              {tab === 'event' || tab === 'person'
+              ? 'bg-immich-primary/15 text-immich-primary'
+              : 'text-gray-700 hover:bg-gray-200/60'}"
             onclick={() => selectTab('event')}
           >
-            <Icon icon={mdiImageMultiple} size="1.25rem" />
+            <Icon icon={mdiImageMultiple} size="1.375rem" />
             Event photos
           </button>
         {/if}
@@ -183,29 +196,33 @@
 
       {#if gallery.assets.length > 0}
         <div class="border-t border-gray-200 pt-3">
-          <Button fullWidth leadingIcon={mdiDownload} loading={downloading} onclick={downloadAll}>
+          <Button fullWidth size="large" leadingIcon={mdiDownload} loading={downloading} onclick={downloadAll}>
             Download all
           </Button>
         </div>
       {/if}
     </aside>
 
-    <main class="min-h-screen flex-1 px-4 py-6 md:ms-60 md:px-8">
-      <!-- mobile tabs -->
+    <main class="min-h-screen min-w-0 flex-1 px-4 py-5 sm:px-6 md:ms-64 md:px-8 md:py-6">
+      <!-- mobile: brand + segmented tabs -->
+      <div class="mb-4 md:hidden">
+        <p class="md-title-medium text-immich-primary">EventLens</p>
+        <p class="md-body-medium truncate text-gray-500">{gallery.event.name}</p>
+      </div>
       {#if showAll}
         <div class="mb-4 flex gap-2 md:hidden">
           <button
-            class="rounded-full px-3.5 py-1.5 text-xs font-medium {tab === 'mine'
+            class="md-label-large min-h-10 rounded-full px-4 {tab === 'mine'
               ? 'bg-immich-primary text-white'
-              : 'bg-gray-100 text-gray-600'}"
+              : 'bg-gray-100 text-gray-700'}"
             onclick={() => selectTab('mine')}
           >
             Your photos
           </button>
           <button
-            class="rounded-full px-3.5 py-1.5 text-xs font-medium {tab === 'event'
+            class="md-label-large min-h-10 rounded-full px-4 {tab === 'event' || tab === 'person'
               ? 'bg-immich-primary text-white'
-              : 'bg-gray-100 text-gray-600'}"
+              : 'bg-gray-100 text-gray-700'}"
             onclick={() => selectTab('event')}
           >
             Event photos
@@ -215,11 +232,20 @@
 
       <div class="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div class="min-w-0">
-          <h1 class="text-2xl font-semibold">
-            {tab === 'mine' ? 'Your photos' : 'Event photos'}
+          <h1 class="md-headline-small">
+            {#if tab === 'person'}
+              {personView?.name || 'Unnamed person'}
+            {:else}
+              {tab === 'mine' ? 'Your photos' : 'Event photos'}
+            {/if}
           </h1>
-          <p class="mt-1 text-sm text-gray-500">
-            {#if tab === 'mine'}
+          <p class="md-body-medium mt-1 text-gray-500">
+            {#if tab === 'person'}
+              {personView?.assets.length ?? 0} photo{(personView?.assets.length ?? 0) === 1 ? '' : 's'} from this event.
+              <button data-md-raw class="text-immich-primary underline" onclick={() => selectTab('event')}>
+                Back to event photos
+              </button>
+            {:else if tab === 'mine'}
               {#if stillWorking && gallery.assets.length === 0}
                 We're still looking through {gallery.event.name}.
               {:else}
@@ -289,23 +315,32 @@
           assets={gallery.assets}
           {selecting}
           {selected}
-          featureAssetId={gallery.event.featureAssetId}
           onToggleSelect={toggleSelect}
           onOpen={(index) => (viewerIndex = index)}
           {onImageError}
         />
+      {:else if tab === 'person'}
+        {#if (personView?.assets.length ?? 0) === 0}
+          <div class="md-surface p-12 text-center text-gray-500">No photos of this person.</div>
+        {:else}
+          <PhotoTimeline
+            assets={personView?.assets ?? []}
+            {selecting}
+            {selected}
+            onToggleSelect={canDownloadAll ? toggleSelect : undefined}
+            onOpen={(index) => (viewerIndex = index)}
+            {onImageError}
+          />
+        {/if}
       {:else if eventLoading && eventAssets.length === 0}
         <div class="flex justify-center py-20"><LoadingSpinner size="giant" /></div>
       {:else if eventAssets.length === 0}
-        <div class="rounded-2xl border border-dashed border-gray-300 p-16 text-center text-gray-500">
-          No event photos yet.
-        </div>
+        <div class="md-surface border-dashed p-12 text-center text-gray-500">No event photos yet.</div>
       {:else}
         <PhotoTimeline
           assets={eventAssets}
           {selecting}
           {selected}
-          featureAssetId={gallery.event.featureAssetId}
           onToggleSelect={canDownloadAll ? toggleSelect : undefined}
           onOpen={(index) => (viewerIndex = index)}
           {onImageError}
@@ -324,10 +359,10 @@
   <PhotoViewer
     {assets}
     index={viewerIndex}
-    featureAssetId={gallery?.event.featureAssetId}
     canDownload={canDownloadCurrent}
     downloadUrl={(assetId) => api.public.galleryDownloadUrl(token, assetId)}
-    onSetFeature={setFeature}
+    loadFaces={async (assetId) => (await api.public.assetFaces(token, assetId)).faces}
+    onOpenPerson={showAll ? openPerson : undefined}
     onClose={() => (viewerIndex = -1)}
     onIndexChange={(index) => (viewerIndex = index)}
   />

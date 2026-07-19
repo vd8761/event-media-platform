@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { api, downloadSelectionZip, sha1Hex, uploadAsset, type AssetItem, type ProcessingStatus } from '$lib/api';
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
   import PhotoViewer from '$lib/components/PhotoViewer.svelte';
@@ -29,7 +30,6 @@
   let viewerIndex = $state(-1);
   let fileInput = $state<HTMLInputElement | null>(null);
   let processing = $state<ProcessingStatus | null>(null);
-  let featureAssetId = $state<string | null>(data.event.featureAssetId ?? null);
 
   let selecting = $state(false);
   let selected = $state(new Set<string>());
@@ -234,11 +234,6 @@
     await refresh();
   }
 
-  async function setFeature(assetId: string | null) {
-    await api.events.setFeaturePhoto(eventId, assetId);
-    featureAssetId = assetId;
-  }
-
   async function deleteAsset(assetId: string) {
     if (!confirm('Delete this photo? It will be removed from all galleries.')) {
       return;
@@ -310,14 +305,7 @@
     No photos yet — upload some to get started.
   </div>
 {:else}
-  <PhotoTimeline
-    {assets}
-    {selecting}
-    {selected}
-    {featureAssetId}
-    onToggleSelect={toggleSelect}
-    onOpen={(index) => (viewerIndex = index)}
-  />
+  <PhotoTimeline {assets} {selecting} {selected} onToggleSelect={toggleSelect} onOpen={(index) => (viewerIndex = index)} />
 
   {#if nextCursor}
     <div class="mt-6 flex justify-center">
@@ -414,10 +402,12 @@
   <PhotoViewer
     {assets}
     index={viewerIndex}
-    {featureAssetId}
     downloadUrl={(assetId) => api.assets.downloadUrl(eventId, assetId)}
     loadDetail={(assetId) => api.assets.get(eventId, assetId)}
-    onSetFeature={setFeature}
+    onOpenPerson={(personId) => goto(`/events/${eventId}/people/${personId}`)}
+    onSetPersonCover={canManage
+      ? async (personId, faceId) => void (await api.people.setCover(eventId, personId, faceId))
+      : undefined}
     canDelete={canManage}
     onClose={() => (viewerIndex = -1)}
     onIndexChange={(index) => (viewerIndex = index)}

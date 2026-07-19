@@ -10,6 +10,7 @@ import { DB, Participant } from 'src/schema';
 export interface ParticipantUpsert {
   eventId: string;
   email: string;
+  name: string;
   selfieKey: string;
   galleryTokenHash: Buffer;
   galleryTokenEnc: Buffer;
@@ -80,6 +81,7 @@ export class ParticipantRepository {
           .columns(['eventId', 'email'])
           .where('deletedAt', 'is', null)
           .doUpdateSet({
+            name: dto.name,
             selfieKey: dto.selfieKey,
             galleryTokenHash: dto.galleryTokenHash,
             galleryTokenEnc: dto.galleryTokenEnc,
