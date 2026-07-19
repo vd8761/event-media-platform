@@ -11,7 +11,7 @@ import {
 import archiver from 'archiver';
 import { unlink } from 'node:fs/promises';
 import { StagedUpload } from 'src/middleware/file-upload.interceptor';
-import { EventStatus, JobName } from 'src/enum';
+import { AssetFileType, EventStatus, JobName, ParticipantStatus } from 'src/enum';
 import { AssetRepository } from 'src/repositories/asset.repository';
 import { CryptoRepository } from 'src/repositories/crypto.repository';
 import { EventRepository } from 'src/repositories/event.repository';
@@ -20,6 +20,7 @@ import { LoggingRepository } from 'src/repositories/logging.repository';
 import { ParticipantRepository } from 'src/repositories/participant.repository';
 import { StorageRepository } from 'src/repositories/storage.repository';
 import { EventRow } from 'src/schema';
+import { AssetService } from 'src/services/asset.service';
 import { GalleryTokenService } from 'src/services/gallery-token.service';
 import { RateLimiter } from 'src/utils/rate-limiter';
 import { StorageKeys } from 'src/utils/storage-keys';
@@ -36,6 +37,7 @@ export class PublicService {
 
   constructor(
     private assetRepository: AssetRepository,
+    private assetService: AssetService,
     private cryptoRepository: CryptoRepository,
     private eventRepository: EventRepository,
     private galleryTokenService: GalleryTokenService,
@@ -56,7 +58,20 @@ export class PublicService {
       startsAt: event.startsAt,
       endsAt: event.endsAt,
       participantPageEnabled: event.participantPageEnabled,
+      coverUrl: await this.getFeatureUrl(event),
     };
+  }
+
+  // Presigned preview of the event's cover photo, if one is set.
+  private async getFeatureUrl(event: EventRow): Promise<string | null> {
+    if (!event.featureAssetId) {
+      return null;
+    }
+    const files = await this.assetRepository.getFiles(event.featureAssetId);
+    const preview = files.find((file) => file.type === AssetFileType.Preview);
+    return preview
+      ? this.storageRepository.presignGet(preview.storageKey, { expiresIn: GALLERY_URL_TTL })
+      : null;
   }
 
   async submitSelfie(slug: string, email: string, staged: StagedUpload | undefined, clientIp: string) {
@@ -94,10 +109,16 @@ export class PublicService {
         galleryTokenEnc: token.enc,
       });
 
-      await this.jobRepository.queue({ name: JobName.SelfieProcess, data: { participantId: participant.id } });
+      // Acknowledge first, match second: the confirmation email carries the
+      // same gallery link and goes out immediately, so the participant has
+      // somewhere to look while the selfie is still being processed.
+      await this.jobRepository.queueAll([
+        { name: JobName.SendSelfieReceived, data: { participantId: participant.id } },
+        { name: JobName.SelfieProcess, data: { participantId: participant.id } },
+      ]);
 
       // response is always the same generic 202 — no email enumeration
-      return { message: 'Check your email once your photos are ready.' };
+      return { message: "Check your email — we've sent you a link to your photos." };
     } finally {
       if (staged) {
         await unlink(staged.stagingPath).catch(() => undefined);
@@ -115,6 +136,7 @@ export class PublicService {
       matched.map(async (asset) => ({
         id: asset.assetId,
         type: asset.type,
+        originalFilename: asset.originalFilename,
         capturedAt: asset.capturedAt,
         createdAt: asset.createdAt,
         width: asset.width,
@@ -129,20 +151,74 @@ export class PublicService {
       })),
     );
 
+    // Remember that this link was opened, and whether it was opened while the
+    // result was still pending — that is the only case that later earns a
+    // "your photos are ready" email.
+    const stillWorking =
+      participant.status === ParticipantStatus.Processing || participant.status === ParticipantStatus.PendingMatch;
+    const update: Parameters<ParticipantRepository['update']>[1] = {};
+    if (!participant.galleryOpenedAt) {
+      update.galleryOpenedAt = new Date();
+    }
+    if (stillWorking && !participant.awaitingResultNotice) {
+      update.awaitingResultNotice = true;
+    }
+    if (Object.keys(update).length > 0) {
+      await this.participantRepository.update(participant.id, update);
+    }
+
     return {
-      event: { name: event.name, startsAt: event.startsAt, endsAt: event.endsAt },
+      event: {
+        name: event.name,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+        // participants may browse the whole event only if the organiser says so
+        showAllPhotos: event.participantsSeeAllPhotos,
+        canDownloadAllPhotos: event.participantsSeeAllPhotos && event.participantsCanDownloadAll,
+        featureAssetId: event.featureAssetId,
+        coverUrl: await this.getFeatureUrl(event),
+      },
       status: participant.status,
       assets,
     };
   }
 
-  // 302 presigned original — only after validating membership in participant_match
-  async getGalleryDownloadUrl(token: string, assetId: string): Promise<string> {
-    const { participant } = await this.resolveGallery(token);
-
-    if (!(await this.participantRepository.isMatchedAsset(participant.id, assetId))) {
-      throw new NotFoundException('Asset not found');
+  // The whole event gallery, shown to participants only when the organiser has
+  // enabled it. Same cursor pagination as the org-facing listing.
+  async getEventGallery(token: string, limit: number, cursor?: string) {
+    const { event } = await this.resolveGallery(token);
+    if (!event.participantsSeeAllPhotos) {
+      throw new NotFoundException('Event photos are not shared');
     }
+    return this.assetService.list(event.id, limit, cursor);
+  }
+
+  // Shared event cover photo. Participants may set it as well as organisers —
+  // it is one pick for the event, so the most recent choice wins.
+  async setFeaturePhoto(token: string, assetId: string | null): Promise<void> {
+    const { participant, event } = await this.resolveGallery(token);
+
+    if (assetId) {
+      // A participant may only feature a photo they are allowed to see: one of
+      // their own matches, or any event photo when sharing is enabled.
+      const isOwn = await this.participantRepository.isMatchedAsset(participant.id, assetId);
+      if (!isOwn && !event.participantsSeeAllPhotos) {
+        throw new NotFoundException('Asset not found');
+      }
+      const asset = await this.assetRepository.getById(event.id, assetId);
+      if (!asset) {
+        throw new NotFoundException('Asset not found');
+      }
+    }
+
+    await this.eventRepository.setFeatureAsset(event.id, assetId);
+  }
+
+  // 302 presigned original. A participant's own matches are always
+  // downloadable; everyone else's photos need both event toggles.
+  async getGalleryDownloadUrl(token: string, assetId: string): Promise<string> {
+    const { participant, event } = await this.resolveGallery(token);
+    await this.assertDownloadable(participant.id, event, assetId);
 
     const asset = await this.assetRepository.getById(participant.eventId, assetId);
     if (!asset) {
@@ -155,13 +231,45 @@ export class PublicService {
     });
   }
 
+  private async assertDownloadable(participantId: string, event: EventRow, assetId: string): Promise<void> {
+    if (await this.participantRepository.isMatchedAsset(participantId, assetId)) {
+      return;
+    }
+    // Not one of theirs — allowed only when the organiser shares the event
+    // gallery AND permits downloading it. "Not found" rather than "forbidden"
+    // so the response can't be used to probe which photos exist.
+    if (!event.participantsSeeAllPhotos || !event.participantsCanDownloadAll) {
+      throw new NotFoundException('Asset not found');
+    }
+    if (!(await this.assetRepository.getById(event.id, assetId))) {
+      throw new NotFoundException('Asset not found');
+    }
+  }
+
   // "Download all": stream a zip of every matched original (docs/plan/07 §4;
   // Immich archiver pattern). Bytes flow R2 → backend → client without
   // buffering whole files.
-  async streamGalleryZip(token: string, response: import('express').Response): Promise<void> {
+  // `assetIds` narrows the zip to a multi-select; omitted means "everything I
+  // matched". Each requested id is permission-checked individually.
+  async streamGalleryZip(
+    token: string,
+    response: import('express').Response,
+    assetIds?: string[],
+  ): Promise<void> {
     const { participant, event } = await this.resolveGallery(token);
-    const matched = await this.participantRepository.getMatchedAssets(participant.id);
-    if (matched.length === 0) {
+
+    let ids: string[];
+    if (assetIds && assetIds.length > 0) {
+      for (const assetId of assetIds) {
+        await this.assertDownloadable(participant.id, event, assetId);
+      }
+      ids = assetIds;
+    } else {
+      const matched = await this.participantRepository.getMatchedAssets(participant.id);
+      ids = matched.map((asset) => asset.assetId);
+    }
+
+    if (ids.length === 0) {
       throw new NotFoundException('No photos to download yet');
     }
 
@@ -173,8 +281,8 @@ export class PublicService {
     archive.pipe(response);
 
     const used = new Set<string>();
-    for (const asset of matched) {
-      const full = await this.assetRepository.getById(participant.eventId, asset.assetId);
+    for (const assetId of ids) {
+      const full = await this.assetRepository.getById(participant.eventId, assetId);
       if (!full) {
         continue;
       }

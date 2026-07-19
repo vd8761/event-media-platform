@@ -43,12 +43,16 @@ export class PersonRepository {
     return this.db
       .selectFrom('person')
       .selectAll('person')
+      // Distinct photos, not faces: after a merge one photo can hold several
+      // of a person's faces, and the UI labels this number "photos".
       .select((eb) =>
         eb
           .selectFrom('assetFace')
-          .select(sql<number>`count(*)::int`.as('count'))
+          .innerJoin('asset', 'asset.id', 'assetFace.assetId')
+          .select(sql<number>`count(DISTINCT asset.id)::int`.as('count'))
           .whereRef('assetFace.personId', '=', 'person.id')
           .where('assetFace.deletedAt', 'is', null)
+          .where('asset.deletedAt', 'is', null)
           .as('faceCount'),
       )
       .where('eventId', '=', eventId)
@@ -122,6 +126,20 @@ export class PersonRepository {
       return;
     }
     await this.db.deleteFrom('person').where('id', 'in', ids).execute();
+  }
+
+  // Move every face of `sourceIds` onto `targetId` in one statement — the
+  // merge path (Immich PersonService.mergePerson). Returns rows moved.
+  async reassignFacesOfPeople(targetId: string, sourceIds: string[]): Promise<number> {
+    if (sourceIds.length === 0) {
+      return 0;
+    }
+    const result = await this.db
+      .updateTable('assetFace')
+      .set({ personId: targetId })
+      .where('personId', 'in', sourceIds)
+      .executeTakeFirst();
+    return Number(result.numUpdatedRows ?? 0);
   }
 
   // Photos of one person, for the People detail page.

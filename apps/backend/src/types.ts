@@ -15,6 +15,7 @@ export interface JobPayloads {
   [JobName.ImportFile]: { importItemId: string };
   [JobName.ParticipantRematch]: { eventId: string };
   [JobName.ParticipantMatchSweep]: Record<string, never>;
+  [JobName.SendSelfieReceived]: { participantId: string };
   [JobName.SendGalleryEmail]: { participantId: string };
   [JobName.SendDigest]: { participantId: string };
   [JobName.SendNoFaceEmail]: { participantId: string };

@@ -1,10 +1,19 @@
 <script lang="ts">
-  import { api, sha1Hex, uploadAsset, type AssetItem, type ProcessingStatus } from '$lib/api';
+  import { api, downloadSelectionZip, sha1Hex, uploadAsset, type AssetItem, type ProcessingStatus } from '$lib/api';
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
   import PhotoViewer from '$lib/components/PhotoViewer.svelte';
   import ProcessingBar from '$lib/components/ProcessingBar.svelte';
+  import SelectionBar from '$lib/components/SelectionBar.svelte';
   import { Button, Icon, IconButton, LoadingSpinner } from '@immich/ui';
-  import { mdiAlertCircleOutline, mdiCheckCircle, mdiChevronDown, mdiClose, mdiImageOff, mdiUpload } from '@mdi/js';
+  import {
+    mdiAlertCircleOutline,
+    mdiCheckCircle,
+    mdiCheckCircleOutline,
+    mdiChevronDown,
+    mdiClose,
+    mdiImageOff,
+    mdiUpload,
+  } from '@mdi/js';
   import { onDestroy, onMount } from 'svelte';
 
   let { data } = $props();
@@ -20,6 +29,11 @@
   let viewerIndex = $state(-1);
   let fileInput = $state<HTMLInputElement | null>(null);
   let processing = $state<ProcessingStatus | null>(null);
+  let featureAssetId = $state<string | null>(data.event.featureAssetId ?? null);
+
+  let selecting = $state(false);
+  let selected = $state(new Set<string>());
+  let downloadingZip = $state(false);
 
   // --- upload panel (Immich UploadPanel pattern) ---
   // Items live in this $state array and are only ever mutated *through it*.
@@ -187,6 +201,44 @@
     }
   }
 
+  function toggleSelect(assetId: string) {
+    const next = new Set(selected);
+    if (next.has(assetId)) {
+      next.delete(assetId);
+    } else {
+      next.add(assetId);
+    }
+    selected = next;
+  }
+
+  function clearSelection() {
+    selecting = false;
+    selected = new Set();
+  }
+
+  async function downloadSelected() {
+    downloadingZip = true;
+    try {
+      await downloadSelectionZip(api.assets.downloadManyUrl(eventId), [...selected], `${data.event.name}.zip`);
+    } finally {
+      downloadingZip = false;
+    }
+  }
+
+  async function deleteSelected() {
+    if (!confirm(`Delete ${selected.size} photo${selected.size === 1 ? '' : 's'}? They are removed from all galleries.`)) {
+      return;
+    }
+    await api.assets.remove(eventId, [...selected]);
+    clearSelection();
+    await refresh();
+  }
+
+  async function setFeature(assetId: string | null) {
+    await api.events.setFeaturePhoto(eventId, assetId);
+    featureAssetId = assetId;
+  }
+
   async function deleteAsset(assetId: string) {
     if (!confirm('Delete this photo? It will be removed from all galleries.')) {
       return;
@@ -225,8 +277,26 @@
     class="hidden"
     onchange={(event) => onFilesPicked(event.currentTarget.files)}
   />
-  <Button leadingIcon={mdiUpload} onclick={() => fileInput?.click()}>Upload</Button>
+  <div class="flex items-center gap-2">
+    {#if assets.length > 0 && !selecting}
+      <Button variant="outline" leadingIcon={mdiCheckCircleOutline} onclick={() => (selecting = true)}>Select</Button>
+    {/if}
+    <Button leadingIcon={mdiUpload} onclick={() => fileInput?.click()}>Upload</Button>
+  </div>
 </div>
+
+{#if selecting}
+  <SelectionBar
+    count={selected.size}
+    total={assets.length}
+    downloading={downloadingZip}
+    canDelete={canManage}
+    onSelectAll={() => (selected = new Set(assets.map((asset) => asset.id)))}
+    onClear={clearSelection}
+    onDownload={downloadSelected}
+    onDelete={deleteSelected}
+  />
+{/if}
 
 {#if processing}
   <ProcessingBar status={processing} {canManage} onReprocess={reprocessFaces} />
@@ -240,7 +310,14 @@
     No photos yet — upload some to get started.
   </div>
 {:else}
-  <PhotoTimeline {assets} onOpen={(index) => (viewerIndex = index)} />
+  <PhotoTimeline
+    {assets}
+    {selecting}
+    {selected}
+    {featureAssetId}
+    onToggleSelect={toggleSelect}
+    onOpen={(index) => (viewerIndex = index)}
+  />
 
   {#if nextCursor}
     <div class="mt-6 flex justify-center">
@@ -337,8 +414,10 @@
   <PhotoViewer
     {assets}
     index={viewerIndex}
+    {featureAssetId}
     downloadUrl={(assetId) => api.assets.downloadUrl(eventId, assetId)}
     loadDetail={(assetId) => api.assets.get(eventId, assetId)}
+    onSetFeature={setFeature}
     canDelete={canManage}
     onClose={() => (viewerIndex = -1)}
     onIndexChange={(index) => (viewerIndex = index)}

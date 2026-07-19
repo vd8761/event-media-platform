@@ -5,11 +5,13 @@ import { Migration, MigrationProvider } from 'kysely';
 import * as m0001 from 'src/migrations/0001-init';
 import * as m0002 from 'src/migrations/0002-participant-token';
 import * as m0003 from 'src/migrations/0003-asset-face-status';
+import * as m0004 from 'src/migrations/0004-sharing-and-feature-photo';
 
 const migrations: Record<string, Migration> = {
   '0001-init': m0001,
   '0002-participant-token': m0002,
   '0003-asset-face-status': m0003,
+  '0004-sharing-and-feature-photo': m0004,
 };
 
 export class StaticMigrationProvider implements MigrationProvider {

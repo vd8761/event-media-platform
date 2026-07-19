@@ -106,6 +106,22 @@ export class EventService {
     return { assets, faces };
   }
 
+  async setFeaturePhoto(eventId: string, assetId: string | null): Promise<void> {
+    if (assetId) {
+      const asset = await this.db
+        .selectFrom('asset')
+        .select('id')
+        .where('id', '=', assetId)
+        .where('eventId', '=', eventId)
+        .where('deletedAt', 'is', null)
+        .executeTakeFirst();
+      if (!asset) {
+        throw new NotFoundException('Asset not found');
+      }
+    }
+    await this.eventRepository.setFeatureAsset(eventId, assetId);
+  }
+
   // Manual re-run for an operator whose pipeline stalled (ML sidecar was down,
   // queue was paused, …). `force` also drops existing clusters first.
   async reprocessFaces(eventId: string, force: boolean): Promise<{ queued: number }> {

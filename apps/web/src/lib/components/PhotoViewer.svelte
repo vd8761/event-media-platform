@@ -14,6 +14,8 @@
     mdiInformationOutline,
     mdiMagnifyMinusOutline,
     mdiMagnifyPlusOutline,
+    mdiStar,
+    mdiStarOutline,
   } from '@mdi/js';
   import { DateTime } from 'luxon';
   import { onMount } from 'svelte';
@@ -44,6 +46,12 @@
     /** Optional — populates the info panel. Omitted on the public gallery. */
     loadDetail?: (assetId: string) => Promise<AssetDetail>;
     canDelete?: boolean;
+    /** False hides the download control (view-only event photos). */
+    canDownload?: boolean;
+    /** Id of the event's shared cover photo, so the star can show as active. */
+    featureAssetId?: string | null;
+    /** Provided when the viewer may change the event cover. */
+    onSetFeature?: (assetId: string | null) => Promise<void>;
     onClose: () => void;
     onIndexChange: (index: number) => void;
     onDelete?: (assetId: string) => void;
@@ -55,14 +63,34 @@
     downloadUrl,
     loadDetail,
     canDelete = false,
+    canDownload = true,
+    featureAssetId = null,
+    onSetFeature,
     onClose,
     onIndexChange,
     onDelete,
   }: Props = $props();
 
+
   const filename = $derived(assets[index]?.originalFilename ?? 'photo.jpg');
 
   const asset = $derived(assets[index]);
+  const isFeatured = $derived(!!asset && featureAssetId === asset.id);
+  let savingFeature = $state(false);
+
+  // Star toggles: feature the current photo, or clear it if it already is.
+  async function toggleFeature() {
+    if (!asset || !onSetFeature || savingFeature) {
+      return;
+    }
+    savingFeature = true;
+    try {
+      await onSetFeature(isFeatured ? null : asset.id);
+    } finally {
+      savingFeature = false;
+    }
+  }
+
   let showInfo = $state(false);
   let zoomed = $state(false);
   let imageLoaded = $state(false);
@@ -250,14 +278,26 @@
           color="secondary"
           onclick={() => (zoomed = !zoomed)}
         />
-        <IconButton
-          icon={mdiDownload}
-          aria-label="Download"
-          variant="ghost"
-          color="secondary"
-          loading={downloading}
-          onclick={download}
-        />
+        {#if onSetFeature}
+          <IconButton
+            icon={isFeatured ? mdiStar : mdiStarOutline}
+            aria-label={isFeatured ? 'Remove as event cover' : 'Set as event cover'}
+            variant="ghost"
+            color={isFeatured ? 'warning' : 'secondary'}
+            loading={savingFeature}
+            onclick={toggleFeature}
+          />
+        {/if}
+        {#if canDownload}
+          <IconButton
+            icon={mdiDownload}
+            aria-label="Download"
+            variant="ghost"
+            color="secondary"
+            loading={downloading}
+            onclick={download}
+          />
+        {/if}
         <IconButton
           icon={mdiInformationOutline}
           aria-label="Info"

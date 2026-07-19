@@ -1,8 +1,19 @@
 <script lang="ts">
   import { api, type AssetItem, type PersonItem, type ProcessingStatus } from '$lib/api';
   import ProcessingBar from '$lib/components/ProcessingBar.svelte';
-  import { Badge, Button, Icon, IconButton, Input, LoadingSpinner, Modal, ModalBody, ModalFooter } from '@immich/ui';
-  import { mdiAccountOff, mdiEye, mdiEyeOff, mdiPencil } from '@mdi/js';
+  import {
+    Alert,
+    Badge,
+    Button,
+    Icon,
+    IconButton,
+    Input,
+    LoadingSpinner,
+    Modal,
+    ModalBody,
+    ModalFooter,
+  } from '@immich/ui';
+  import { mdiAccountOff, mdiCheck, mdiEye, mdiEyeOff, mdiMerge, mdiPencil } from '@mdi/js';
   import { onDestroy, onMount } from 'svelte';
 
   let { data } = $props();
@@ -15,10 +26,25 @@
   let people = $state<PersonItem[]>([]);
   let processing = $state<ProcessingStatus | null>(null);
   let loading = $state(true);
-  let selected = $state<PersonItem | null>(null);
-  let selectedAssets = $state<{ id: string; thumbUrl: string | null; originalFilename: string }[]>([]);
   let renameTarget = $state<PersonItem | null>(null);
   let renameValue = $state('');
+
+  // Merge mode: tick several people, then fold them into one (Immich's
+  // "merge people"). The target keeps its name and cover face.
+  let merging = $state(false);
+  let picked = $state(new Set<string>());
+  let mergeTargetId = $state<string | null>(null);
+  let mergeBusy = $state(false);
+  let mergeError = $state('');
+
+  const pickedPeople = $derived(people.filter((person) => picked.has(person.id)));
+  // default target = the cluster with the most photos, which usually has the
+  // best cover face and, if any are named, the name worth keeping
+  const mergeTarget = $derived(
+    pickedPeople.find((person) => person.id === mergeTargetId) ??
+      pickedPeople.find((person) => person.name) ??
+      pickedPeople[0],
+  );
 
   // Per-photo face-detection state — "what is running and what is not".
   type Tab = 'pending' | 'found' | 'none';
@@ -69,10 +95,42 @@
     await loadPhotos();
   }
 
-  async function openPerson(person: PersonItem) {
-    selected = person;
-    selectedAssets = [];
-    selectedAssets = await api.people.assets(eventId, person.id);
+  function togglePick(personId: string) {
+    const next = new Set(picked);
+    if (next.has(personId)) {
+      next.delete(personId);
+    } else {
+      next.add(personId);
+    }
+    picked = next;
+    if (mergeTargetId && !next.has(mergeTargetId)) {
+      mergeTargetId = null;
+    }
+  }
+
+  function exitMerge() {
+    merging = false;
+    picked = new Set();
+    mergeTargetId = null;
+    mergeError = '';
+  }
+
+  async function confirmMerge() {
+    if (!mergeTarget || picked.size < 2) {
+      return;
+    }
+    mergeBusy = true;
+    mergeError = '';
+    try {
+      const others = [...picked].filter((id) => id !== mergeTarget.id);
+      await api.people.merge(eventId, mergeTarget.id, others);
+      exitMerge();
+      await refresh();
+    } catch (error) {
+      mergeError = error instanceof Error ? error.message : 'Merge failed';
+    } finally {
+      mergeBusy = false;
+    }
   }
 
   async function toggleHidden(person: PersonItem) {
@@ -114,7 +172,26 @@
 {#if loading}
   <div class="flex justify-center py-20"><LoadingSpinner size="giant" /></div>
 {:else}
-  <h2 class="mb-3 text-sm font-semibold">People</h2>
+  <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+    <h2 class="text-sm font-semibold">People</h2>
+    {#if canManage && people.length > 1}
+      {#if merging}
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs text-gray-500">
+            {picked.size < 2 ? 'Pick two or more people to merge' : `${picked.size} selected`}
+          </span>
+          <Button size="tiny" variant="ghost" color="secondary" onclick={exitMerge}>Cancel</Button>
+          <Button size="tiny" leadingIcon={mdiMerge} disabled={picked.size < 2} onclick={() => (mergeTargetId ||= mergeTarget?.id ?? null)}>
+            Merge {picked.size > 1 ? picked.size : ''}
+          </Button>
+        </div>
+      {:else}
+        <Button size="tiny" variant="outline" leadingIcon={mdiMerge} onclick={() => (merging = true)}>
+          Merge people
+        </Button>
+      {/if}
+    {/if}
+  </div>
   {#if people.length === 0}
     <div class="mb-8 rounded-2xl border border-dashed border-gray-300 p-12 text-center text-gray-500">
       <Icon icon={mdiAccountOff} size="2.5rem" class="mx-auto mb-3 text-gray-300" />
@@ -129,43 +206,76 @@
   {:else}
     <div class="mb-8 grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-4">
       {#each people as person (person.id)}
+        {@const isPicked = picked.has(person.id)}
         <div class="group relative text-center {person.isHidden ? 'opacity-40' : ''}">
-          <button class="w-full" onclick={() => openPerson(person)}>
-            {#if person.thumbnailUrl}
-              <img
-                src={person.thumbnailUrl}
-                alt={person.name || 'Unnamed person'}
-                class="mx-auto aspect-square w-full rounded-full object-cover shadow"
-              />
-            {:else}
-              <div
-                class="mx-auto flex aspect-square w-full items-center justify-center rounded-full bg-gray-100 text-gray-400"
-                title="Portrait still being generated"
-              >
-                <LoadingSpinner />
+          {#if merging}
+            <!-- merge mode: the whole card toggles selection instead of navigating -->
+            <button class="w-full" onclick={() => togglePick(person.id)}>
+              <div class="relative mx-auto aspect-square w-full">
+                {#if person.thumbnailUrl}
+                  <img
+                    src={person.thumbnailUrl}
+                    alt={person.name || 'Unnamed person'}
+                    class="h-full w-full rounded-full object-cover shadow {isPicked
+                      ? 'ring-immich-primary ring-4 ring-offset-2'
+                      : ''}"
+                  />
+                {:else}
+                  <div class="flex h-full w-full items-center justify-center rounded-full bg-gray-100 text-gray-400">
+                    <LoadingSpinner />
+                  </div>
+                {/if}
+                {#if isPicked}
+                  <span
+                    class="bg-immich-primary absolute end-1 top-1 flex h-6 w-6 items-center justify-center rounded-full text-white"
+                  >
+                    <Icon icon={mdiCheck} size="1rem" />
+                  </span>
+                {/if}
+              </div>
+              <p class="mt-2 truncate text-sm font-medium">{person.name || 'Unnamed'}</p>
+              <p class="text-xs text-gray-400">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
+            </button>
+          {:else}
+            <a class="block w-full" href={`/events/${eventId}/people/${person.id}`}>
+              {#if person.thumbnailUrl}
+                <img
+                  src={person.thumbnailUrl}
+                  alt={person.name || 'Unnamed person'}
+                  class="mx-auto aspect-square w-full rounded-full object-cover shadow transition group-hover:brightness-95"
+                />
+              {:else}
+                <div
+                  class="mx-auto flex aspect-square w-full items-center justify-center rounded-full bg-gray-100 text-gray-400"
+                  title="Portrait still being generated"
+                >
+                  <LoadingSpinner />
+                </div>
+              {/if}
+              <p class="mt-2 truncate text-sm font-medium">{person.name || 'Unnamed'}</p>
+              <p class="text-xs text-gray-400">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
+            </a>
+            {#if canManage}
+              <div class="absolute end-1 top-1 hidden gap-1 group-hover:flex">
+                <IconButton
+                  icon={mdiPencil}
+                  aria-label="Rename"
+                  size="tiny"
+                  onclick={() => {
+                    renameTarget = person;
+                    renameValue = person.name;
+                  }}
+                />
+                <IconButton
+                  icon={person.isHidden ? mdiEye : mdiEyeOff}
+                  aria-label={person.isHidden ? 'Show' : 'Hide'}
+                  size="tiny"
+                  color="secondary"
+                  onclick={() => toggleHidden(person)}
+                />
               </div>
             {/if}
-            <p class="mt-2 truncate text-sm font-medium">{person.name || 'Unnamed'}</p>
-            <p class="text-xs text-gray-400">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
-          </button>
-          <div class="absolute end-1 top-1 hidden gap-1 group-hover:flex">
-            <IconButton
-              icon={mdiPencil}
-              aria-label="Rename"
-              size="tiny"
-              onclick={() => {
-                renameTarget = person;
-                renameValue = person.name;
-              }}
-            />
-            <IconButton
-              icon={person.isHidden ? mdiEye : mdiEyeOff}
-              aria-label={person.isHidden ? 'Show' : 'Hide'}
-              size="tiny"
-              color="secondary"
-              onclick={() => toggleHidden(person)}
-            />
-          </div>
+          {/if}
         </div>
       {/each}
     </div>
@@ -228,21 +338,41 @@
   {/if}
 {/if}
 
-{#if selected}
-  <Modal title={selected.name || 'Unnamed person'} size="large" onClose={() => (selected = null)}>
+{#if mergeTargetId && mergeTarget}
+  <Modal title="Merge people" size="small" onClose={() => (mergeTargetId = null)}>
     <ModalBody>
-      {#if selectedAssets.length === 0}
-        <div class="flex justify-center py-10"><LoadingSpinner /></div>
-      {:else}
-        <div class="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-1.5">
-          {#each selectedAssets as asset (asset.id)}
-            {#if asset.thumbUrl}
-              <img src={asset.thumbUrl} alt={asset.originalFilename} class="aspect-square w-full rounded-lg object-cover" />
-            {/if}
-          {/each}
-        </div>
+      {#if mergeError}
+        <div class="mb-3"><Alert color="danger" title={mergeError} /></div>
       {/if}
+      <p class="mb-4 text-sm text-gray-600">
+        All {picked.size} clusters become one person. Pick which one to keep — it keeps its name and cover photo, and
+        the others are removed.
+      </p>
+      <div class="flex flex-wrap gap-3">
+        {#each pickedPeople as person (person.id)}
+          <button class="w-20 text-center" onclick={() => (mergeTargetId = person.id)}>
+            {#if person.thumbnailUrl}
+              <img
+                src={person.thumbnailUrl}
+                alt={person.name || 'Unnamed'}
+                class="h-20 w-20 rounded-full object-cover {mergeTarget.id === person.id
+                  ? 'ring-immich-primary ring-4 ring-offset-2'
+                  : 'opacity-70'}"
+              />
+            {:else}
+              <div class="flex h-20 w-20 items-center justify-center rounded-full bg-gray-100"><LoadingSpinner /></div>
+            {/if}
+            <p class="mt-1 truncate text-xs font-medium">{person.name || 'Unnamed'}</p>
+            <p class="text-[11px] text-gray-400">{person.faceCount}</p>
+          </button>
+        {/each}
+      </div>
     </ModalBody>
+    <ModalFooter>
+      <Button fullWidth loading={mergeBusy} onclick={confirmMerge}>
+        Merge into {mergeTarget.name || 'this person'}
+      </Button>
+    </ModalFooter>
   </Modal>
 {/if}
 

@@ -19,6 +19,13 @@ export class DeleteAssetsDto extends createZodDto(
   }),
 ) {}
 
+// Multi-select download from the org gallery.
+export class DownloadAssetsDto extends createZodDto(
+  z.object({
+    ids: z.array(z.string().uuid()).min(1).max(1000),
+  }),
+) {}
+
 export class AssetJobDto extends createZodDto(
   z.object({
     name: z.enum(['thumbnails', 'faceDetection', 'facialRecognition']),

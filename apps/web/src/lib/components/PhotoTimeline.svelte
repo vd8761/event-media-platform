@@ -3,7 +3,8 @@
   // day-grouped justified rows, aspect ratios preserved, thumbhash
   // placeholders that cross-fade into the real thumbnail.
   import { justifiedLayout, type TimelineAsset } from '$lib/justified';
-  import { LoadingSpinner } from '@immich/ui';
+  import { Icon, LoadingSpinner } from '@immich/ui';
+  import { mdiCheck, mdiStar } from '@mdi/js';
   import { DateTime } from 'luxon';
   import { thumbHashToDataURL } from 'thumbhash';
 
@@ -12,9 +13,24 @@
     onOpen: (index: number) => void;
     onImageError?: () => void;
     targetRowHeight?: number;
+    /** Selection mode: when true, clicking a tile toggles instead of opening. */
+    selecting?: boolean;
+    selected?: Set<string>;
+    onToggleSelect?: (assetId: string) => void;
+    /** Id of the shared event cover, badged in the grid. */
+    featureAssetId?: string | null;
   }
 
-  let { assets, onOpen, onImageError, targetRowHeight = 235 }: Props = $props();
+  let {
+    assets,
+    onOpen,
+    onImageError,
+    targetRowHeight = 235,
+    selecting = false,
+    selected,
+    onToggleSelect,
+    featureAssetId = null,
+  }: Props = $props();
 
   let containerWidth = $state(0);
   const GAP = 2;
@@ -77,11 +93,13 @@
         {#each group.items as { asset, index }, itemIndex (asset.id)}
           {@const box = layouts[groupIndex]?.boxes[itemIndex]}
           {#if box}
+            {@const isSelected = selected?.has(asset.id) ?? false}
             <button
-              class="group absolute overflow-hidden bg-gray-100 focus:z-10 focus:outline-2 focus:outline-immich-primary"
+              class="group absolute overflow-hidden bg-gray-100 focus:z-10 focus:outline-2 focus:outline-immich-primary
+                {isSelected ? 'ring-immich-primary p-2 ring-2 ring-inset' : ''}"
               style="top: {box.top}px; left: {box.left}px; width: {box.width}px; height: {box.height}px;
                 {placeholder(asset) ? `background-image: url('${placeholder(asset)}'); background-size: cover;` : ''}"
-              onclick={() => onOpen(index)}
+              onclick={() => (selecting ? onToggleSelect?.(asset.id) : onOpen(index))}
             >
               {#if asset.thumbUrl}
                 <img
@@ -100,6 +118,29 @@
               <div
                 class="pointer-events-none absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/25 to-transparent opacity-0 transition-opacity group-hover:opacity-100"
               ></div>
+
+              <!-- selection tick: always visible once selected, on hover otherwise -->
+              {#if onToggleSelect}
+                <span
+                  class="absolute start-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border-2 transition-opacity
+                    {isSelected
+                    ? 'border-immich-primary bg-immich-primary text-white opacity-100'
+                    : 'border-white/90 bg-black/20 opacity-0 group-hover:opacity-100'}"
+                >
+                  {#if isSelected}
+                    <Icon icon={mdiCheck} size="0.85rem" />
+                  {/if}
+                </span>
+              {/if}
+
+              {#if featureAssetId === asset.id}
+                <span
+                  class="absolute end-1.5 top-1.5 rounded-full bg-black/50 p-1 text-amber-300"
+                  title="Event cover photo"
+                >
+                  <Icon icon={mdiStar} size="0.85rem" />
+                </span>
+              {/if}
               {#if asset.status && asset.status !== 'processed'}
                 <span
                   class="absolute bottom-1.5 start-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white"

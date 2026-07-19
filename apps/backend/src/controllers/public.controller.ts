@@ -1,6 +1,18 @@
 // Public surfaces — no session auth (docs/plan/09 §Public). The gallery token
 // in the path IS the credential; PublicService hashes and resolves it.
-import { Body, Controller, Get, HttpCode, Param, Post, Req, Res, UseInterceptors } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Put,
+  Query,
+  Req,
+  Res,
+  UseInterceptors,
+} from '@nestjs/common';
 import { ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { createZodDto } from 'nestjs-zod';
@@ -11,6 +23,26 @@ import { z } from 'zod';
 export class SubmitSelfieDto extends createZodDto(
   z.object({
     email: z.string().email().max(320),
+  }),
+) {}
+
+export class GalleryZipDto extends createZodDto(
+  z.object({
+    // omitted/empty = every photo matched to this participant
+    ids: z.array(z.string().uuid()).max(1000).optional(),
+  }),
+) {}
+
+export class GalleryFeaturePhotoDto extends createZodDto(
+  z.object({
+    assetId: z.string().uuid().nullable(),
+  }),
+) {}
+
+export class GalleryAssetsQueryDto extends createZodDto(
+  z.object({
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+    cursor: z.string().optional(),
   }),
 ) {}
 
@@ -52,5 +84,23 @@ export class PublicController {
   @Get('gallery/:token/download')
   downloadAll(@Param('token') token: string, @Res() res: Response) {
     return this.publicService.streamGalleryZip(token, res);
+  }
+
+  // Multi-select download: same stream, narrowed to the chosen photos.
+  @Post('gallery/:token/download')
+  downloadSelection(@Param('token') token: string, @Body() dto: GalleryZipDto, @Res() res: Response) {
+    return this.publicService.streamGalleryZip(token, res, dto.ids);
+  }
+
+  // Whole-event gallery — 404s unless the organiser shared it.
+  @Get('gallery/:token/event-assets')
+  getEventAssets(@Param('token') token: string, @Query() query: GalleryAssetsQueryDto) {
+    return this.publicService.getEventGallery(token, query.limit, query.cursor);
+  }
+
+  @Put('gallery/:token/feature-photo')
+  @HttpCode(204)
+  setFeaturePhoto(@Param('token') token: string, @Body() dto: GalleryFeaturePhotoDto) {
+    return this.publicService.setFeaturePhoto(token, dto.assetId);
   }
 }

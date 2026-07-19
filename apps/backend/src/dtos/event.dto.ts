@@ -7,6 +7,8 @@ import { z } from 'zod';
 const eventConfigSchema = z.object({
   matchMaxDistance: z.number().min(0).max(2).optional(),
   minScore: z.number().min(0).max(1).optional(),
+  // 1 = every detected face becomes a person (the default)
+  minFaces: z.number().int().min(1).max(20).optional(),
 });
 
 // ISO strings, not z.coerce.date() — Date schemas cannot be represented in the
@@ -40,6 +42,18 @@ export class UpdateEventDto extends createZodDto(
     endsAt: isoDate.nullish(),
     status: z.enum([EventStatus.Draft, EventStatus.Active, EventStatus.Closed]).optional(),
     participantPageEnabled: z.boolean().optional(),
+    // Whether participants see the whole event gallery, and separately whether
+    // they may download those other photos. Their own matches are always
+    // downloadable, so this only gates everyone else's.
+    participantsSeeAllPhotos: z.boolean().optional(),
+    participantsCanDownloadAll: z.boolean().optional(),
     config: eventConfigSchema.optional(),
+  }),
+) {}
+
+// Shared event cover photo — set by organisers and participants alike.
+export class SetFeaturePhotoDto extends createZodDto(
+  z.object({
+    assetId: z.string().uuid().nullable(),
   }),
 ) {}

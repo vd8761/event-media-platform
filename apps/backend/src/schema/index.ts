@@ -77,6 +77,10 @@ export interface EventTable {
   status: Generated<EventStatus>;
   participantPageEnabled: Generated<boolean>;
   config: Generated<EventConfig>;
+  // Shared cover photo — participants and organisers both set it (migration 0004).
+  featureAssetId: string | null;
+  participantsSeeAllPhotos: Generated<boolean>;
+  participantsCanDownloadAll: Generated<boolean>;
   createdAt: CreatedAt;
   updatedAt: GeneratedTimestamp;
   deletedAt: Timestamp | null;
@@ -86,6 +90,10 @@ export interface EventTable {
 export interface EventConfig {
   matchMaxDistance?: number;
   minScore?: number;
+  // How many similar faces are needed before a cluster becomes a person.
+  // Defaults to 1 so nobody is missed; raise it on large events where
+  // single-photo people become noise.
+  minFaces?: number;
 }
 
 export interface AssetTable {
@@ -182,6 +190,11 @@ export interface ParticipantTable {
   status: Generated<ParticipantStatus>;
   notifiedFirstAt: Timestamp | null;
   lastNotifiedAt: Timestamp | null;
+  // First time the tokenized link was opened (migration 0004).
+  galleryOpenedAt: Timestamp | null;
+  // True once someone has seen the "still processing" page — the only case
+  // where a follow-up "your photos are ready" email is worth sending.
+  awaitingResultNotice: Generated<boolean>;
   createdAt: CreatedAt;
   updatedAt: GeneratedTimestamp;
   deletedAt: Timestamp | null;

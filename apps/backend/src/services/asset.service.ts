@@ -1,4 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import archiver from 'archiver';
+import { Response } from 'express';
 import { AssetJobDto } from 'src/dtos/asset.dto';
 import { AssetStatus, JobName } from 'src/enum';
 import { AssetRepository } from 'src/repositories/asset.repository';
@@ -121,6 +123,39 @@ export class AssetService {
       expiresIn: DOWNLOAD_URL_TTL,
       filename: asset.originalFilename,
     });
+  }
+
+  // Multi-select download: one streamed zip, store-only (media is already
+  // compressed), duplicate filenames suffixed — same shape as the participant
+  // gallery's zip.
+  async streamZip(eventId: string, ids: string[], response: Response): Promise<void> {
+    const event = await this.eventRepository.getById(eventId);
+    const archive = archiver('zip', { zlib: { level: 0 } });
+
+    const safeName = (event?.name ?? 'photos').replaceAll(/[^\w\- ]+/g, '').trim() || 'photos';
+    response.setHeader('Content-Type', 'application/zip');
+    response.setHeader('Content-Disposition', `attachment; filename="${safeName}.zip"`);
+    archive.pipe(response);
+
+    const used = new Set<string>();
+    for (const assetId of ids) {
+      const asset = await this.assetRepository.getById(eventId, assetId);
+      if (!asset) {
+        continue; // silently skip ids from another event
+      }
+      let name = asset.originalFilename;
+      for (let counter = 2; used.has(name); counter++) {
+        const dot = asset.originalFilename.lastIndexOf('.');
+        name =
+          dot > 0
+            ? `${asset.originalFilename.slice(0, dot)} (${counter})${asset.originalFilename.slice(dot)}`
+            : `${asset.originalFilename} (${counter})`;
+      }
+      used.add(name);
+      archive.append(await this.storageRepository.getStream(asset.storageKey), { name });
+    }
+
+    await archive.finalize();
   }
 
   async deleteMany(eventId: string, ids: string[]): Promise<{ deleted: number }> {

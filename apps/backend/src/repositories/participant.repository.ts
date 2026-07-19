@@ -85,6 +85,9 @@ export class ParticipantRepository {
             galleryTokenEnc: dto.galleryTokenEnc,
             selfieEmbedding: null,
             status: ParticipantStatus.Processing,
+            // resubmitting starts a fresh cycle: the old "waiting for a
+            // result" state does not carry over to the new selfie
+            awaitingResultNotice: false,
             updatedAt: new Date(),
           }),
       )
@@ -99,6 +102,8 @@ export class ParticipantRepository {
     lastNotifiedAt: Date;
     galleryTokenHash: Buffer;
     galleryTokenEnc: Buffer;
+    galleryOpenedAt: Date;
+    awaitingResultNotice: boolean;
   }>): Promise<void> {
     await this.db
       .updateTable('participant')

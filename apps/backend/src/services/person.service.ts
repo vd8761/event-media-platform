@@ -1,8 +1,10 @@
 // Org-facing People/cluster review (docs/plan/09 §People).
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { createZodDto } from 'nestjs-zod';
-import { AssetFileType } from 'src/enum';
+import { AssetFileType, JobName } from 'src/enum';
 import { AssetRepository } from 'src/repositories/asset.repository';
+import { JobRepository } from 'src/repositories/job.repository';
+import { LoggingRepository } from 'src/repositories/logging.repository';
 import { PersonRepository } from 'src/repositories/person.repository';
 import { StorageRepository } from 'src/repositories/storage.repository';
 import { z } from 'zod';
@@ -16,13 +18,24 @@ export class UpdatePersonDto extends createZodDto(
   }),
 ) {}
 
+// Fold other clusters into this one (Immich's "merge people").
+export class MergePeopleDto extends createZodDto(
+  z.object({
+    ids: z.array(z.string().uuid()).min(1).max(100),
+  }),
+) {}
+
 @Injectable()
 export class PersonService {
   constructor(
     private assetRepository: AssetRepository,
+    private jobRepository: JobRepository,
+    private logger: LoggingRepository,
     private personRepository: PersonRepository,
     private storageRepository: StorageRepository,
-  ) {}
+  ) {
+    this.logger.setContext(PersonService.name);
+  }
 
   async list(eventId: string) {
     const people = await this.personRepository.getAllForEvent(eventId, true);
@@ -39,6 +52,21 @@ export class PersonService {
     );
   }
 
+  async get(eventId: string, personId: string) {
+    const person = await this.personRepository.getById(eventId, personId);
+    if (!person) {
+      throw new NotFoundException('Person not found');
+    }
+    return {
+      id: person.id,
+      name: person.name,
+      isHidden: person.isHidden,
+      thumbnailUrl: person.thumbnailKey
+        ? await this.storageRepository.presignGet(person.thumbnailKey, { expiresIn: URL_TTL })
+        : null,
+    };
+  }
+
   async update(eventId: string, personId: string, dto: UpdatePersonDto) {
     const person = await this.personRepository.getById(eventId, personId);
     if (!person) {
@@ -48,7 +76,51 @@ export class PersonService {
     return { id: updated.id, name: updated.name, isHidden: updated.isHidden };
   }
 
-  // Photos this person appears in, with presigned thumbs (People detail page).
+  // Merge `ids` into `personId`: every face moves to the target, the sources
+  // are deleted and their thumbnails cleaned up. The target keeps its own name
+  // and cover face, so merging into a named person is non-destructive.
+  async merge(eventId: string, personId: string, ids: string[]) {
+    const target = await this.personRepository.getById(eventId, personId);
+    if (!target) {
+      throw new NotFoundException('Person not found');
+    }
+
+    const sourceIds = [...new Set(ids)].filter((id) => id !== personId);
+    if (sourceIds.length === 0) {
+      throw new BadRequestException('Nothing to merge');
+    }
+
+    // Every source must belong to this event — merging across events would
+    // break the per-event isolation the whole face pipeline depends on.
+    const sources = [];
+    for (const id of sourceIds) {
+      const source = await this.personRepository.getById(eventId, id);
+      if (!source) {
+        throw new NotFoundException(`Person ${id} not found in this event`);
+      }
+      sources.push(source);
+    }
+
+    const moved = await this.personRepository.reassignFacesOfPeople(personId, sourceIds);
+    await this.personRepository.delete(sourceIds);
+
+    const keys = sources.map((source) => source.thumbnailKey).filter(Boolean);
+    if (keys.length > 0) {
+      await this.jobRepository.queue({ name: JobName.CleanupKeys, data: { keys } });
+    }
+
+    // If the target had no cover face yet, it does now — regenerate so the
+    // merged person shows a portrait instead of a spinner.
+    if (!target.faceAssetFaceId || !target.thumbnailKey) {
+      await this.jobRepository.queue({ name: JobName.PersonThumbnail, data: { personId } });
+    }
+
+    this.logger.log(`Merged ${sourceIds.length} people into ${personId} (${moved} faces moved)`);
+    return { id: personId, mergedCount: sourceIds.length, facesMoved: moved };
+  }
+
+  // Photos this person appears in. Returns the same shape as the event gallery
+  // so the person page can reuse the justified timeline and the viewer.
   async getAssets(eventId: string, personId: string) {
     const person = await this.personRepository.getById(eventId, personId);
     if (!person) {
@@ -64,14 +136,34 @@ export class PersonService {
         }
         const files = await this.assetRepository.getFiles(assetId);
         const thumb = files.find((file) => file.type === AssetFileType.Thumbnail);
+        const preview = files.find((file) => file.type === AssetFileType.Preview);
         return {
           id: asset.id,
+          type: asset.type,
+          status: asset.status,
           originalFilename: asset.originalFilename,
           capturedAt: asset.capturedAt,
+          createdAt: asset.createdAt,
+          width: asset.width,
+          height: asset.height,
+          thumbhash: asset.thumbhash ? asset.thumbhash.toString('base64') : null,
+          facesDetectedAt: asset.facesDetectedAt,
+          faceCount: asset.faceCount,
           thumbUrl: thumb ? await this.storageRepository.presignGet(thumb.storageKey, { expiresIn: URL_TTL }) : null,
+          previewUrl: preview
+            ? await this.storageRepository.presignGet(preview.storageKey, { expiresIn: URL_TTL })
+            : null,
         };
       }),
     );
-    return assets.filter(Boolean);
+
+    // newest first, matching the event gallery's ordering
+    return assets
+      .filter((asset): asset is NonNullable<typeof asset> => asset !== null)
+      .sort((a, b) => {
+        const left = (a.capturedAt ?? a.createdAt).valueOf();
+        const right = (b.capturedAt ?? b.createdAt).valueOf();
+        return right - left;
+      });
   }
 }

@@ -7,6 +7,7 @@ import { OnJob } from 'src/decorators';
 import { GalleryReadyEmail, subject as galleryReadySubject } from 'src/emails/gallery-ready.email';
 import { GalleryUpdateEmail, subject as galleryUpdateSubject } from 'src/emails/gallery-update.email';
 import { NoFaceDetectedEmail, subject as noFaceSubject } from 'src/emails/no-face-detected.email';
+import { SelfieReceivedEmail, subject as selfieReceivedSubject } from 'src/emails/selfie-received.email';
 import { EmailTemplate, JobName, JobStatus, QueueName } from 'src/enum';
 import { EmailLogRepository } from 'src/repositories/email-log.repository';
 import { EmailRepository } from 'src/repositories/email.repository';
@@ -31,6 +32,25 @@ export class NotificationService {
     this.logger.setContext(NotificationService.name);
   }
 
+  // Immediate acknowledgement — queued by the intake endpoint, so it goes out
+  // while the selfie is still being embedded.
+  @OnJob({ name: JobName.SendSelfieReceived, queue: QueueName.Notification })
+  async handleSendSelfieReceived({ participantId }: JobOf<JobName.SendSelfieReceived>): Promise<JobStatus> {
+    const context = await this.loadContext(participantId);
+    if (!context) {
+      return JobStatus.Skipped;
+    }
+    const { participant, eventName, galleryUrl } = context;
+
+    const props = { eventName, galleryUrl };
+    return this.send(
+      participant,
+      EmailTemplate.SelfieReceived,
+      selfieReceivedSubject(props),
+      createElement(SelfieReceivedEmail, props),
+    );
+  }
+
   @OnJob({ name: JobName.SendGalleryEmail, queue: QueueName.Notification })
   async handleSendGalleryEmail({ participantId }: JobOf<JobName.SendGalleryEmail>): Promise<JobStatus> {
     const context = await this.loadContext(participantId);
@@ -45,6 +65,15 @@ export class NotificationService {
       return JobStatus.Skipped;
     }
 
+    // Everyone already got the link in the "selfie received" email, so this
+    // follow-up only earns its place for people who opened that link while it
+    // still said "processing" — they saw an unfinished page and are waiting.
+    // Anyone who hasn't opened it yet will simply find their photos there.
+    if (!participant.awaitingResultNotice) {
+      this.logger.debug(`Gallery email for ${participantId} skipped — participant has not opened a pending gallery`);
+      return JobStatus.Skipped;
+    }
+
     const props = { eventName, matchCount, galleryUrl };
     const status = await this.send(
       participant,
@@ -55,7 +84,12 @@ export class NotificationService {
 
     if (status === JobStatus.Success) {
       const now = new Date();
-      await this.participantRepository.update(participantId, { notifiedFirstAt: now, lastNotifiedAt: now });
+      // clear the flag so a later batch of matches goes down the digest path
+      await this.participantRepository.update(participantId, {
+        notifiedFirstAt: now,
+        lastNotifiedAt: now,
+        awaitingResultNotice: false,
+      });
     }
     return status;
   }

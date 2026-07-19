@@ -17,7 +17,11 @@ export const FACIAL_RECOGNITION_DEFAULTS: FacialRecognitionConfig = {
   modelName: 'buffalo_l',
   minScore: 0.7,
   maxDistance: 0.5,
-  minFaces: 3,
+  // Immich defaults to 3; EventLens uses 1 so a guest who appears in a single
+  // photo still becomes a person and is never dropped from the People tab.
+  // Raise it per event (EventConfig.minFaces) if single-photo people get noisy;
+  // duplicates are cleaned up by merging instead.
+  minFaces: 1,
 };
 
 @Injectable()

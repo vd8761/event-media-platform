@@ -10,7 +10,10 @@
   let description = $state(data.event.description ?? '');
   let status = $state(data.event.status);
   let participantPageEnabled = $state(data.event.participantPageEnabled);
+  let participantsSeeAllPhotos = $state(data.event.participantsSeeAllPhotos);
+  let participantsCanDownloadAll = $state(data.event.participantsCanDownloadAll);
   let matchMaxDistance = $state(data.event.config.matchMaxDistance?.toString() ?? '');
+  let minFaces = $state(data.event.config.minFaces?.toString() ?? '');
   let error = $state('');
   let saved = $state(false);
   let saving = $state(false);
@@ -26,7 +29,14 @@
         description: description || null,
         status,
         participantPageEnabled,
-        config: matchMaxDistance ? { matchMaxDistance: Number(matchMaxDistance) } : {},
+        participantsSeeAllPhotos,
+        // sending false when sharing is off keeps the two flags consistent, so
+        // re-enabling sharing later never silently re-grants downloads
+        participantsCanDownloadAll: participantsSeeAllPhotos && participantsCanDownloadAll,
+        config: {
+          ...(matchMaxDistance ? { matchMaxDistance: Number(matchMaxDistance) } : {}),
+          ...(minFaces ? { minFaces: Number(minFaces) } : {}),
+        },
       });
       saved = true;
       await invalidateAll();
@@ -79,11 +89,42 @@
       </div>
       <Switch bind:checked={participantPageEnabled} />
     </div>
+    <div class="rounded-xl border border-gray-200">
+      <div class="flex items-center justify-between px-4 py-3">
+        <div>
+          <p class="text-sm font-medium">Show all event photos to participants</p>
+          <p class="text-xs text-gray-500">Adds an "Event photos" section to every participant's gallery</p>
+        </div>
+        <Switch bind:checked={participantsSeeAllPhotos} />
+      </div>
+
+      <!-- only meaningful once the gallery is shared at all -->
+      {#if participantsSeeAllPhotos}
+        <div class="flex items-center justify-between border-t border-gray-100 px-4 py-3 ps-8">
+          <div>
+            <p class="text-sm font-medium">Let them download those photos</p>
+            <p class="text-xs text-gray-500">
+              Off means view-only. Participants can always download photos they appear in.
+            </p>
+          </div>
+          <Switch bind:checked={participantsCanDownloadAll} />
+        </div>
+      {/if}
+    </div>
+
     <div>
       <label for="distance" class="immich-form-label mb-1 block text-sm">Match distance override</label>
       <Input id="distance" bind:value={matchMaxDistance} placeholder="default 0.5" />
       <p class="mt-1 text-xs text-gray-400">
         Lower (e.g. 0.45) for crowded events with false merges; leave empty for the default.
+      </p>
+    </div>
+    <div>
+      <label for="min-faces" class="immich-form-label mb-1 block text-sm">Photos needed to form a person</label>
+      <Input id="min-faces" bind:value={minFaces} placeholder="default 1" />
+      <p class="mt-1 text-xs text-gray-400">
+        1 means every detected face becomes a person, so nobody is missed — use Merge on the People tab to combine
+        duplicates. Raise it on very large events if single-photo people get noisy.
       </p>
     </div>
 

@@ -72,7 +72,10 @@ export interface EventItem {
   endsAt: string | null;
   status: 'draft' | 'active' | 'closed';
   participantPageEnabled: boolean;
-  config: { matchMaxDistance?: number; minScore?: number };
+  participantsSeeAllPhotos: boolean;
+  participantsCanDownloadAll: boolean;
+  featureAssetId: string | null;
+  config: { matchMaxDistance?: number; minScore?: number; minFaces?: number };
   orgName?: string;
 }
 
@@ -219,20 +222,31 @@ export interface QueueCounts {
   isPaused: boolean;
 }
 
+export interface GalleryAsset {
+  id: string;
+  type: string;
+  originalFilename?: string;
+  capturedAt: string | null;
+  createdAt: string;
+  width: number | null;
+  height: number | null;
+  thumbhash: string | null;
+  thumbUrl: string | null;
+  previewUrl: string | null;
+}
+
 export interface GalleryResponse {
-  event: { name: string; startsAt: string | null; endsAt: string | null };
+  event: {
+    name: string;
+    startsAt: string | null;
+    endsAt: string | null;
+    showAllPhotos: boolean;
+    canDownloadAllPhotos: boolean;
+    featureAssetId: string | null;
+    coverUrl: string | null;
+  };
   status: string;
-  assets: {
-    id: string;
-    type: string;
-    capturedAt: string | null;
-    createdAt: string;
-    width: number | null;
-    height: number | null;
-    thumbhash: string | null;
-    thumbUrl: string | null;
-    previewUrl: string | null;
-  }[];
+  assets: GalleryAsset[];
 }
 
 // --- auth ---
@@ -285,6 +299,8 @@ export const api = {
     processing: (eventId: string) => get<ProcessingStatus>(`/events/${eventId}/processing`),
     reprocessFaces: (eventId: string, force = false) =>
       post<{ queued: number }>(`/events/${eventId}/reprocess-faces`, { force }),
+    setFeaturePhoto: (eventId: string, assetId: string | null) =>
+      put<void>(`/events/${eventId}/feature-photo`, { assetId }),
   },
 
   // --- assets ---
@@ -303,6 +319,7 @@ export const api = {
       ),
     remove: (eventId: string, ids: string[]) => del<{ deleted: number }>(`/events/${eventId}/assets`, { ids }),
     downloadUrl: (eventId: string, assetId: string) => `/api/events/${eventId}/assets/${assetId}/download`,
+    downloadManyUrl: (eventId: string) => `/api/events/${eventId}/assets/download`,
     runJob: (eventId: string, assetId: string, name: string, force?: boolean) =>
       post<void>(`/events/${eventId}/assets/${assetId}/jobs`, { name, force }),
   },
@@ -310,12 +327,20 @@ export const api = {
   // --- people ---
   people: {
     list: (eventId: string) => get<PersonItem[]>(`/events/${eventId}/people`),
+    get: (eventId: string, personId: string) =>
+      get<{ id: string; name: string; isHidden: boolean; thumbnailUrl: string | null }>(
+        `/events/${eventId}/people/${personId}`,
+      ),
     update: (eventId: string, personId: string, body: { name?: string; isHidden?: boolean }) =>
       put<PersonItem>(`/events/${eventId}/people/${personId}`, body),
-    assets: (eventId: string, personId: string) =>
-      get<{ id: string; originalFilename: string; capturedAt: string | null; thumbUrl: string | null }[]>(
-        `/events/${eventId}/people/${personId}/assets`,
+    // folds `ids` into `personId` (Immich-style merge)
+    merge: (eventId: string, personId: string, ids: string[]) =>
+      post<{ id: string; mergedCount: number; facesMoved: number }>(
+        `/events/${eventId}/people/${personId}/merge`,
+        { ids },
       ),
+    assets: (eventId: string, personId: string) =>
+      get<AssetItem[]>(`/events/${eventId}/people/${personId}/assets`),
   },
 
   // --- participants (org) ---
@@ -360,10 +385,43 @@ export const api = {
       return request<{ message: string }>(`/public/events/${slug}/participants`, { method: 'POST', body: form });
     },
     gallery: (token: string) => get<GalleryResponse>(`/public/gallery/${token}`),
+    // whole-event gallery — 404s unless the organiser shared it
+    eventAssets: (token: string, cursor?: string, limit = 100) =>
+      get<{ assets: GalleryAsset[]; nextCursor: string | null }>(
+        `/public/gallery/${token}/event-assets?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+      ),
     galleryDownloadUrl: (token: string, assetId: string) => `/api/public/gallery/${token}/assets/${assetId}/download`,
     galleryDownloadAllUrl: (token: string) => `/api/public/gallery/${token}/download`,
+    setFeaturePhoto: (token: string, assetId: string | null) =>
+      put<void>(`/public/gallery/${token}/feature-photo`, { assetId }),
   },
 };
+
+// Saves a blob response under `filename`. Used for every download in the app:
+// fetching rather than navigating keeps the presigned redirect from opening the
+// image in a tab, and keeps the original filename.
+export async function saveBlob(response: Response, filename: string) {
+  if (!response.ok) {
+    throw new ApiError(response.status, `Download failed (${response.status})`);
+  }
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadSelectionZip(url: string, ids: string[], filename: string) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  await saveBlob(response, filename);
+}
 
 // SHA-1 preflight hash (browser) — hex string matching the backend's inline
 // hash (docs/plan/04 §3).

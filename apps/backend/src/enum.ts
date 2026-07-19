@@ -35,6 +35,7 @@ export enum JobName {
   ImportFile = 'ImportFile',
   ParticipantRematch = 'ParticipantRematch',
   ParticipantMatchSweep = 'ParticipantMatchSweep',
+  SendSelfieReceived = 'SendSelfieReceived',
   SendGalleryEmail = 'SendGalleryEmail',
   SendDigest = 'SendDigest',
   SendNoFaceEmail = 'SendNoFaceEmail',
@@ -163,6 +164,7 @@ export enum ImportItemStatus {
 }
 
 export enum EmailTemplate {
+  SelfieReceived = 'selfie-received',
   GalleryReady = 'gallery-ready',
   GalleryUpdate = 'gallery-update',
   NoFaceDetected = 'no-face-detected',

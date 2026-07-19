@@ -65,6 +65,7 @@ export class FaceService {
       ...config,
       minScore: event?.config?.minScore ?? config.minScore,
       maxDistance: event?.config?.matchMaxDistance ?? config.maxDistance,
+      minFaces: event?.config?.minFaces ?? config.minFaces,
     };
   }
 

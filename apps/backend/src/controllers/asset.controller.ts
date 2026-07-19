@@ -13,7 +13,13 @@ import {
 } from '@nestjs/common';
 import { ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
-import { AssetJobDto, AssetListQueryDto, BulkUploadCheckDto, DeleteAssetsDto } from 'src/dtos/asset.dto';
+import {
+  AssetJobDto,
+  AssetListQueryDto,
+  BulkUploadCheckDto,
+  DeleteAssetsDto,
+  DownloadAssetsDto,
+} from 'src/dtos/asset.dto';
 import { OrgRole } from 'src/enum';
 import { FileUploadInterceptor, getStagedUpload } from 'src/middleware/file-upload.interceptor';
 import { Authenticated } from 'src/middleware/auth.guard';
@@ -67,6 +73,13 @@ export class AssetController {
   async download(@Param('eventId') eventId: string, @Param('assetId') assetId: string, @Res() res: Response) {
     const url = await this.assetService.getDownloadUrl(eventId, assetId);
     res.redirect(302, url);
+  }
+
+  // Multi-select download (POST because the id list can be long).
+  @Post('download')
+  @Authenticated({ orgRole: OrgRole.Member })
+  downloadMany(@Param('eventId') eventId: string, @Body() dto: DownloadAssetsDto, @Res() res: Response) {
+    return this.assetService.streamZip(eventId, dto.ids, res);
   }
 
   @Delete()

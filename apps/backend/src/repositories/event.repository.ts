@@ -65,6 +65,16 @@ export class EventRepository {
     return query.execute();
   }
 
+  // Shared event cover (migration 0004). Nulling it is how a featured photo is
+  // cleared; the FK also nulls it automatically if the asset is hard-deleted.
+  async setFeatureAsset(eventId: string, assetId: string | null): Promise<void> {
+    await this.db
+      .updateTable('event')
+      .set({ featureAssetId: assetId, updatedAt: new Date() })
+      .where('id', '=', eventId)
+      .execute();
+  }
+
   listByOrg(orgId: string): Promise<EventRow[]> {
     return this.db
       .selectFrom('event')
