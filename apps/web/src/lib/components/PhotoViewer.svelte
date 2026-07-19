@@ -79,8 +79,110 @@
 
   let showInfo = $state(false);
   let showFaces = $state(true);
-  let zoomed = $state(false);
   let imageLoaded = $state(false);
+
+  // --- zoom & pan ---------------------------------------------------------
+  // Zoom resizes the image box outright rather than applying a CSS transform:
+  // the photo is laid out at `fit size × zoom` inside a scrollable stage, so
+  // panning is native scrolling and the face overlay — which is simply inset-0
+  // on that same box — stays aligned for free at every magnification.
+  const MIN_ZOOM = 1;
+  const MAX_ZOOM = 6;
+  let zoom = $state(1);
+  const zoomed = $derived(zoom > 1);
+
+  let frameEl = $state<HTMLDivElement | null>(null);
+  let stageSize = $state({ width: 0, height: 0 });
+  let natural = $state({ width: 0, height: 0 });
+
+  // scale that makes the photo fit the stage without cropping
+  const fitScale = $derived(
+    natural.width > 0 && natural.height > 0 && stageSize.width > 0 && stageSize.height > 0
+      ? Math.min(stageSize.width / natural.width, stageSize.height / natural.height)
+      : 0,
+  );
+  const displayWidth = $derived(fitScale > 0 ? natural.width * fitScale * zoom : 0);
+  const displayHeight = $derived(fitScale > 0 ? natural.height * fitScale * zoom : 0);
+
+  function measureStage() {
+    if (frameEl) {
+      stageSize = { width: frameEl.clientWidth, height: frameEl.clientHeight };
+    }
+  }
+
+  function onImageLoad(event: Event) {
+    const image = event.currentTarget as HTMLImageElement;
+    natural = { width: image.naturalWidth, height: image.naturalHeight };
+    imageLoaded = true;
+    measureStage();
+  }
+
+  // Zoom about the centre of the viewport: keep whatever is in the middle in
+  // the middle, which is what people expect from the +/- controls.
+  function setZoom(next: number) {
+    const previous = zoom;
+    const clamped = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(next * 100) / 100));
+    if (clamped === previous) {
+      return;
+    }
+    zoom = clamped;
+
+    const frame = frameEl;
+    if (!frame) {
+      return;
+    }
+    const ratio = clamped / previous;
+    const centreX = frame.scrollLeft + frame.clientWidth / 2;
+    const centreY = frame.scrollTop + frame.clientHeight / 2;
+    requestAnimationFrame(() => {
+      frame.scrollLeft = centreX * ratio - frame.clientWidth / 2;
+      frame.scrollTop = centreY * ratio - frame.clientHeight / 2;
+    });
+  }
+
+  function resetZoom() {
+    zoom = 1;
+  }
+
+  function onWheel(event: WheelEvent) {
+    event.preventDefault();
+    setZoom(zoom * (event.deltaY < 0 ? 1.2 : 1 / 1.2));
+  }
+
+  // drag to pan by scrolling the stage
+  let dragging = $state(false);
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let scrollStartX = 0;
+  let scrollStartY = 0;
+
+  function onPointerDown(event: PointerEvent) {
+    if (!zoomed || !frameEl) {
+      return;
+    }
+    dragging = true;
+    dragStartX = event.clientX;
+    dragStartY = event.clientY;
+    scrollStartX = frameEl.scrollLeft;
+    scrollStartY = frameEl.scrollTop;
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  }
+
+  function onPointerMove(event: PointerEvent) {
+    if (!dragging || !frameEl) {
+      return;
+    }
+    frameEl.scrollLeft = scrollStartX - (event.clientX - dragStartX);
+    frameEl.scrollTop = scrollStartY - (event.clientY - dragStartY);
+  }
+
+  function onPointerUp(event: PointerEvent) {
+    if (!dragging) {
+      return;
+    }
+    dragging = false;
+    (event.currentTarget as HTMLElement).releasePointerCapture?.(event.pointerId);
+  }
   let detail = $state<AssetDetail | null>(null);
   let faces = $state<FaceBox[]>([]);
   let downloading = $state(false);
@@ -94,7 +196,8 @@
       return;
     }
     imageLoaded = false;
-    zoomed = false;
+    resetZoom();
+    natural = { width: 0, height: 0 };
     detail = null;
     faces = [];
 
@@ -154,7 +257,7 @@
     switch (event.key) {
       case 'Escape': {
         if (zoomed) {
-          zoomed = false;
+          resetZoom();
         } else if (showInfo) {
           showInfo = false;
         } else {
@@ -168,6 +271,19 @@
       }
       case 'ArrowRight': {
         next();
+        break;
+      }
+      case '+':
+      case '=': {
+        setZoom(zoom * 1.4);
+        break;
+      }
+      case '-': {
+        setZoom(zoom / 1.4);
+        break;
+      }
+      case '0': {
+        resetZoom();
         break;
       }
       case 'i': {
@@ -239,6 +355,10 @@
     touchStartY = event.changedTouches[0].screenY;
   }
   function onTouchEnd(event: TouchEvent) {
+    // while zoomed a horizontal drag is a pan, not a request for the next photo
+    if (zoomed) {
+      return;
+    }
     const deltaX = event.changedTouches[0].screenX - touchStartX;
     const deltaY = event.changedTouches[0].screenY - touchStartY;
     if (Math.abs(deltaX) > 60 && Math.abs(deltaX) > Math.abs(deltaY)) {
@@ -266,6 +386,18 @@
     return () => {
       document.body.style.overflow = previousOverflow;
     };
+  });
+
+  // Recompute the fit when the stage resizes — window resize, opening the info
+  // panel, orientation change. An effect rather than onMount because the frame
+  // only exists once an image is rendered.
+  $effect(() => {
+    if (!frameEl) {
+      return;
+    }
+    const observer = new ResizeObserver(() => measureStage());
+    observer.observe(frameEl);
+    return () => observer.disconnect();
   });
 </script>
 
@@ -302,12 +434,30 @@
           />
         {/if}
         <IconButton
-          icon={zoomed ? mdiMagnifyMinusOutline : mdiMagnifyPlusOutline}
-          aria-label={zoomed ? 'Fit to screen' : 'Zoom to fill'}
+          icon={mdiMagnifyMinusOutline}
+          aria-label="Zoom out"
           variant="ghost"
           color="secondary"
-          class="hidden sm:flex"
-          onclick={() => (zoomed = !zoomed)}
+          disabled={zoom <= 1}
+          onclick={() => setZoom(zoom / 1.4)}
+        />
+        {#if zoomed}
+          <button
+            data-md-raw
+            class="md-label-medium min-w-11 rounded-full px-2 py-1 text-white/80 hover:bg-white/10"
+            title="Reset zoom"
+            onclick={resetZoom}
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+        {/if}
+        <IconButton
+          icon={mdiMagnifyPlusOutline}
+          aria-label="Zoom in"
+          variant="ghost"
+          color="secondary"
+          disabled={zoom >= 6}
+          onclick={() => setZoom(zoom * 1.4)}
         />
         {#if canDownload}
           <IconButton
@@ -362,26 +512,53 @@
             <div class="absolute"><LoadingSpinner size="giant" /></div>
           {/if}
 
-          <!-- shrink-wraps the image so the face overlay maps 1:1 onto it -->
-          <div class="relative flex max-h-full max-w-full items-center justify-center">
-            <img
-              src={asset.previewUrl}
-              alt={filename}
-              class="block max-h-full max-w-full transition-opacity duration-200 {imageLoaded
-                ? 'opacity-100'
-                : 'opacity-0'}
-                {zoomed ? 'h-screen w-screen cursor-zoom-out object-cover' : 'cursor-zoom-in object-contain'}"
-              onload={() => (imageLoaded = true)}
-              onclick={() => (zoomed = !zoomed)}
-            />
-            <!-- boxes are only accurate while the image is letterboxed -->
-            {#if showFaces && imageLoaded && !zoomed && faces.length > 0}
-              <FaceBoxes
-                {faces}
-                onOpenPerson={onOpenPerson ? openPerson : undefined}
-                onSetCover={onSetPersonCover ? setCover : undefined}
-              />
-            {/if}
+          <!-- The frame is absolutely sized to the stage, which gives the image
+               a definite box to resolve max-h-full/max-w-full against. An
+               auto-height wrapper here silently disables those percentages and
+               the photo renders at its natural size instead of fitting. -->
+          <!-- Scrollable stage: at zoom 1 the photo fits exactly; above that it
+               overflows and the browser handles panning. -->
+          <div
+            bind:this={frameEl}
+            class="immich-scrollbar absolute inset-0 overscroll-contain
+              {zoomed ? 'overflow-auto' : 'overflow-hidden'}
+              {dragging ? 'cursor-grabbing' : zoomed ? 'cursor-grab' : ''}"
+            onwheel={onWheel}
+            onpointerdown={onPointerDown}
+            onpointermove={onPointerMove}
+            onpointerup={onPointerUp}
+            onpointercancel={onPointerUp}
+            ondblclick={() => setZoom(zoomed ? 1 : 2.5)}
+          >
+            <div class="flex min-h-full min-w-full items-center justify-center">
+              <!-- Exact photo box: the overlay is inset-0 on it, so outlines
+                   line up at any zoom without measuring anything.
+                   Deliberately NOT transitioned — animating width/height
+                   relayouts every frame, and in any frame-starved context
+                   (background tab, throttled compositor) the transition stalls
+                   and the photo appears stuck at its old size. -->
+              <div
+                class="relative shrink-0"
+                style={displayWidth > 0 ? `width: ${displayWidth}px; height: ${displayHeight}px` : ''}
+              >
+                <img
+                  src={asset.previewUrl}
+                  alt={filename}
+                  draggable="false"
+                  class="block h-full w-full object-contain transition-opacity duration-200 select-none
+                    {imageLoaded ? 'opacity-100' : 'opacity-0'}"
+                  onload={onImageLoad}
+                />
+
+                {#if showFaces && imageLoaded && faces.length > 0}
+                  <FaceBoxes
+                    {faces}
+                    onOpenPerson={onOpenPerson ? openPerson : undefined}
+                    onSetCover={onSetPersonCover ? setCover : undefined}
+                  />
+                {/if}
+              </div>
+            </div>
           </div>
         {:else}
           <div class="flex flex-col items-center gap-3 px-6 text-center text-white/70">

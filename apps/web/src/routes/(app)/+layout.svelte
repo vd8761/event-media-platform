@@ -47,10 +47,14 @@
     ></button>
   {/if}
 
+  <!-- Off-canvas below lg, pinned open from lg up. The hide/show uses plain
+       `-translate-x-full` + `lg:translate-x-0`: the ltr:/rtl: variants are
+       emitted after the lg: media query, so they win at every width and left
+       the rail off-screen on desktop. -->
   <aside
     class="bg-immich-gray fixed inset-y-0 start-0 z-30 flex w-72 flex-col border-e border-gray-100 px-3 py-5
       transition-transform duration-300 lg:w-60 lg:translate-x-0
-      {drawerOpen ? 'translate-x-0' : 'ltr:-translate-x-full rtl:translate-x-full'}"
+      {drawerOpen ? 'translate-x-0' : '-translate-x-full'}"
   >
     <a href="/events" class="mb-8 flex items-center gap-3 px-3" onclick={() => (drawerOpen = false)}>
       <div class="bg-immich-primary flex h-10 w-10 items-center justify-center rounded-2xl text-sm font-bold text-white">

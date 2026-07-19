@@ -9,7 +9,6 @@
   import SelectionBar from '$lib/components/SelectionBar.svelte';
   import { Button, Heading, Icon, IconButton, Input, LoadingSpinner, Modal, ModalBody, ModalFooter } from '@immich/ui';
   import { mdiArrowLeft, mdiCheckCircleOutline, mdiEye, mdiEyeOff, mdiImageOff, mdiPencil } from '@mdi/js';
-  import { onMount } from 'svelte';
 
   let { data } = $props();
   const eventId = data.event.id;
@@ -37,6 +36,34 @@
     [person, assets] = await Promise.all([api.people.get(eventId, personId), api.people.assets(eventId, personId)]);
     loading = false;
   }
+
+  // Navigating from one person to another keeps this component mounted, so
+  // onMount would only ever fire for the first person and the page would go on
+  // showing the previous one's photos. Re-load whenever the route param moves.
+  $effect(() => {
+    const id = personId;
+    let cancelled = false;
+    loading = true;
+    person = null;
+    assets = [];
+    viewerIndex = -1;
+    selecting = false;
+    selected = new Set();
+
+    void Promise.all([api.people.get(eventId, id), api.people.assets(eventId, id)])
+      .then(([nextPerson, nextAssets]) => {
+        if (!cancelled) {
+          person = nextPerson;
+          assets = nextAssets;
+          loading = false;
+        }
+      })
+      .catch(() => !cancelled && (loading = false));
+
+    return () => {
+      cancelled = true;
+    };
+  });
 
   function toggleSelect(assetId: string) {
     const next = new Set(selected);
@@ -78,7 +105,6 @@
     setTimeout(() => void refresh(), 1500); // give PersonThumbnail time to run
   }
 
-  onMount(() => void refresh());
 </script>
 
 <svelte:head><title>{title} — {data.event.name}</title></svelte:head>
