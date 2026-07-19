@@ -3,6 +3,9 @@
 //   ingest → consumers for import/match/notification/storageCleanup/background
 //   media  → consumers for the GPU queues (no HTTP server)
 // Single process per container; main VM runs `api,ingest`, GPU VM runs `media`.
+// MUST stay first: it populates process.env before app.module.ts reads config
+// at module scope.
+import 'src/env-file';
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -13,6 +16,7 @@ import { DatabaseRepository } from 'src/repositories/database.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
 import { MachineLearningRepository } from 'src/repositories/machine-learning.repository';
+import { TelemetryRepository } from 'src/repositories/telemetry.repository';
 import { services } from 'src/services';
 import { isStartUpError } from 'src/utils/misc';
 
@@ -50,6 +54,10 @@ async function bootstrap() {
     // the worker gates face jobs on ML /ping health (docs/plan/11 §2)
     app.get(MachineLearningRepository).startAvailabilityChecks();
   }
+
+  // Every process publishes its own host (and GPU, where there is one) to
+  // Redis so the admin system panel can show machines it is not running on.
+  app.get(TelemetryRepository).startHeartbeat();
 
   if (isApi) {
     const httpApp = app as NestExpressApplication;

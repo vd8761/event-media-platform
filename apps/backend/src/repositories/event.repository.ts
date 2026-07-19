@@ -44,25 +44,22 @@ export class EventRepository {
       .executeTakeFirst();
   }
 
-  // Landing page: events across every org the user belongs to; super admins
-  // see all events.
-  listForUser(userId: string, isSuperAdmin: boolean): Promise<(EventRow & { orgName: string })[]> {
-    let query = this.db
+  // Landing page: events across every org the user belongs to. Membership is
+  // the only thing that grants event visibility — a super admin with no
+  // memberships correctly sees nothing here (docs/plan/09-api-surface.md §1).
+  listForUser(userId: string): Promise<(EventRow & { orgName: string })[]> {
+    return this.db
       .selectFrom('event')
       .innerJoin('organization', 'organization.id', 'event.orgId')
       .selectAll('event')
       .select('organization.name as orgName')
       .where('event.deletedAt', 'is', null)
       .where('organization.deletedAt', 'is', null)
-      .orderBy('event.createdAt', 'desc');
-
-    if (!isSuperAdmin) {
-      query = query.where('event.orgId', 'in', (eb) =>
+      .where('event.orgId', 'in', (eb) =>
         eb.selectFrom('organizationUser').select('orgId').where('userId', '=', userId),
-      );
-    }
-
-    return query.execute();
+      )
+      .orderBy('event.createdAt', 'desc')
+      .execute();
   }
 
   listByOrg(orgId: string): Promise<EventRow[]> {

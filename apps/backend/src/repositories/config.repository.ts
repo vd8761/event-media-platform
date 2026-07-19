@@ -5,17 +5,17 @@ import { RegisterQueueOptions } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import { QueueOptions } from 'bullmq';
 import { RedisOptions } from 'ioredis';
-import { EnvSchema } from 'src/dtos/env.dto';
+import { EnvDto, EnvSchema } from 'src/dtos/env.dto';
 import { Environment, LogLevel, QueueName, VectorExtension, WorkerRole } from 'src/enum';
 
 export interface DatabaseConnectionParams {
-  host: string;
-  port: number;
-  username: string;
-  password: string;
-  database: string;
-  url?: string;
+  url: string;
+  // node-postgres does not act on `sslmode` in every version, so the scheme is
+  // resolved here and passed explicitly to the pool (see utils/database.ts).
+  ssl: false | { rejectUnauthorized: boolean };
 }
+
+export type EmailProvider = 'resend' | 'smtp';
 
 export interface EnvData {
   host?: string;
@@ -60,12 +60,17 @@ export interface EnvData {
     microsoft: { clientId?: string; clientSecret?: string };
   };
 
-  smtp: {
-    host?: string;
-    port: number;
-    username?: string;
-    password?: string;
-    from?: string;
+  email: {
+    provider: EmailProvider;
+    from: string;
+    resend: { apiKey?: string };
+    smtp: {
+      host?: string;
+      port: number;
+      secure: boolean;
+      username?: string;
+      password?: string;
+    };
   };
 
   publicBaseUrl: string;
@@ -84,6 +89,112 @@ const asSet = <T>(value: string | undefined, defaults: T[]) => {
 };
 
 const setDifference = <T>(a: Set<T>, b: Set<T>) => new Set([...a].filter((value) => !b.has(value)));
+
+// Local compose default (docker/docker-compose.dev.yml maps 5433 → 5432).
+const DEFAULT_DATABASE_URL = 'postgres://postgres:postgres@localhost:5433/eventlens';
+
+// Managed Postgres (Neon, Supabase, RDS…) terminates TLS with a public CA, so
+// full verification is correct. `sslmode=no-verify` opts out for self-signed
+// certs; plain local Postgres gets no TLS at all.
+const resolveDatabaseSsl = (rawUrl: string): DatabaseConnectionParams['ssl'] => {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error(`DATABASE_URL is not a valid connection string: ${rawUrl}`);
+  }
+
+  const sslmode = url.searchParams.get('sslmode');
+  switch (sslmode) {
+    case 'disable': {
+      return false;
+    }
+    case 'no-verify':
+    case 'allow':
+    case 'prefer': {
+      return { rejectUnauthorized: false };
+    }
+    case 'require':
+    case 'verify-ca':
+    case 'verify-full': {
+      return { rejectUnauthorized: true };
+    }
+    default: {
+      // No sslmode given. Loopback and the `database` compose service are
+      // reached over a private bridge network and stay plaintext; anything
+      // else is remote, so credentials must not cross it in the clear just
+      // because someone left sslmode off the URL.
+      const host = url.hostname;
+      const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === 'database';
+      return isLocal ? false : { rejectUnauthorized: true };
+    }
+  }
+};
+
+const resolveRedis = (dto: EnvDto): RedisOptions => {
+  // BullMQ requires maxRetriesPerRequest to be null on its connections, and
+  // Upstash rejects the readiness probe ioredis sends by default.
+  const base: RedisOptions = { maxRetriesPerRequest: null, enableReadyCheck: false };
+
+  if (dto.REDIS_URL) {
+    let url: URL;
+    try {
+      url = new URL(dto.REDIS_URL);
+    } catch {
+      throw new Error(`REDIS_URL is not a valid connection string: ${dto.REDIS_URL}`);
+    }
+    if (url.protocol !== 'redis:' && url.protocol !== 'rediss:') {
+      throw new Error(`REDIS_URL must use redis:// or rediss://, got ${url.protocol}//`);
+    }
+
+    // db index rides in the path for URL-style config: rediss://host:6379/2
+    const path = url.pathname.replace(/^\//, '');
+    return {
+      ...base,
+      host: url.hostname,
+      port: url.port ? Number(url.port) : 6379,
+      db: path ? Number(path) : 0,
+      username: decodeURIComponent(url.username) || undefined,
+      password: decodeURIComponent(url.password) || undefined,
+      // rediss:// is the whole point for Upstash — SNI must be the hostname.
+      tls: url.protocol === 'rediss:' ? { servername: url.hostname } : undefined,
+    };
+  }
+
+  // Defaults describe local development (docker/docker-compose.dev.yml
+  // publishes Redis on the host); every deployed environment sets REDIS_URL.
+  const host = dto.REDIS_HOSTNAME || 'localhost';
+  return {
+    ...base,
+    host,
+    port: dto.REDIS_PORT || 6379,
+    db: dto.REDIS_DBINDEX || 0,
+    username: dto.REDIS_USERNAME || undefined,
+    password: dto.REDIS_PASSWORD || undefined,
+    tls: dto.REDIS_TLS ? { servername: host } : undefined,
+  };
+};
+
+const resolveEmail = (dto: EnvDto): EnvData['email'] => {
+  // Explicit selection wins; otherwise whichever provider has credentials.
+  const provider: EmailProvider =
+    dto.EMAIL_PROVIDER ?? (dto.RESEND_API_KEY ? 'resend' : 'smtp');
+
+  return {
+    provider,
+    from: dto.EMAIL_FROM || dto.SMTP_FROM || 'EventLens <noreply@eventlens.local>',
+    resend: { apiKey: dto.RESEND_API_KEY },
+    smtp: {
+      host: dto.SMTP_HOST,
+      port: dto.SMTP_PORT || 587,
+      // Implicit TLS is port 465; 587 uses STARTTLS, which nodemailer handles
+      // with secure:false. Explicit SMTP_SECURE overrides both.
+      secure: dto.SMTP_SECURE ?? (dto.SMTP_PORT || 587) === 465,
+      username: dto.SMTP_USERNAME,
+      password: dto.SMTP_PASSWORD,
+    },
+  };
+};
 
 const getEnv = (): EnvData => {
   const parseResult = EnvSchema.safeParse(process.env);
@@ -114,13 +225,8 @@ const getEnv = (): EnvData => {
 
   const environment = (dto.EL_ENV as Environment) || Environment.Production;
 
-  const redisConfig: RedisOptions = {
-    host: dto.REDIS_HOSTNAME || 'redis',
-    port: dto.REDIS_PORT || 6379,
-    db: dto.REDIS_DBINDEX || 0,
-    username: dto.REDIS_USERNAME || undefined,
-    password: dto.REDIS_PASSWORD || undefined,
-  };
+  const redisConfig = resolveRedis(dto);
+  const databaseUrl = dto.DATABASE_URL || DEFAULT_DATABASE_URL;
 
   return {
     host: dto.EL_HOST,
@@ -146,12 +252,8 @@ const getEnv = (): EnvData => {
 
     database: {
       config: {
-        host: dto.DB_HOSTNAME || 'database',
-        port: dto.DB_PORT || 5432,
-        username: dto.DB_USERNAME || 'postgres',
-        password: dto.DB_PASSWORD || 'postgres',
-        database: dto.DB_DATABASE_NAME || 'eventlens',
-        url: dto.DB_URL,
+        url: databaseUrl,
+        ssl: resolveDatabaseSsl(databaseUrl),
       },
       skipMigrations: dto.DB_SKIP_MIGRATIONS ?? false,
       vectorExtension:
@@ -181,13 +283,7 @@ const getEnv = (): EnvData => {
       microsoft: { clientId: dto.MS_CLIENT_ID, clientSecret: dto.MS_CLIENT_SECRET },
     },
 
-    smtp: {
-      host: dto.SMTP_HOST,
-      port: dto.SMTP_PORT || 587,
-      username: dto.SMTP_USERNAME,
-      password: dto.SMTP_PASSWORD,
-      from: dto.SMTP_FROM,
-    },
+    email: resolveEmail(dto),
 
     publicBaseUrl: dto.EL_PUBLIC_BASE_URL || 'http://localhost:3001',
     tokenEncryptionKey: dto.EL_TOKEN_ENCRYPTION_KEY,

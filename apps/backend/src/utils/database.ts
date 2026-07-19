@@ -13,18 +13,11 @@ pg.types.setTypeParser(pg.types.builtins.INT8, (value) => Number.parseInt(value,
 export const getKyselyConfig = (connection: DatabaseConnectionParams): KyselyConfig => {
   return {
     dialect: new PostgresDialect({
-      pool: new pg.Pool(
-        connection.url
-          ? { connectionString: connection.url, max: 10 }
-          : {
-              host: connection.host,
-              port: connection.port,
-              user: connection.username,
-              password: connection.password,
-              database: connection.database,
-              max: 10,
-            },
-      ),
+      pool: new pg.Pool({
+        connectionString: connection.url,
+        ssl: connection.ssl,
+        max: 10,
+      }),
     }),
     plugins: [new CamelCasePlugin()],
     log(event) {

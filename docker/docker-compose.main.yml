@@ -12,8 +12,8 @@ services:
     env_file: .env
     environment:
       EL_WORKERS_INCLUDE: api,ingest
-      DB_HOSTNAME: database
-      REDIS_HOSTNAME: redis
+      # DATABASE_URL / REDIS_URL come from .env — point them at the containers
+      # below, or at Neon/Upstash if you run those managed instead.
     volumes:
       - staging:/staging
     depends_on:
@@ -26,9 +26,11 @@ services:
     # (docs/plan/03-database-schema.md)
     image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
     environment:
-      POSTGRES_USER: ${DB_USERNAME:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_DATABASE_NAME:-eventlens}
+      # These seed the container's own role/database; the app reaches it via
+      # DATABASE_URL, so keep the two in step.
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-eventlens}
     volumes:
       - dbdata:/var/lib/postgresql/data
     shm_size: 128mb
@@ -38,7 +40,7 @@ services:
 
   redis:
     image: valkey/valkey:8
-    command: valkey-server --requirepass ${REDIS_PASSWORD}
+    command: valkey-server --requirepass ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
     # bind to localhost + tailnet interface only (an open Redis is RCE-adjacent)
     restart: always
 

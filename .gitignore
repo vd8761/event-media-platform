@@ -5,6 +5,7 @@ build/
 *.tsbuildinfo
 .env
 .env.*
+!.env.example
 !docker/example.env
 coverage/
 .DS_Store

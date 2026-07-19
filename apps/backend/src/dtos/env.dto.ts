@@ -7,6 +7,13 @@ const optionalBool = z
   .optional()
   .transform((value) => value === 'true' || value === '1');
 
+// Tri-state: undefined means "unset", so the caller can apply its own default
+// rather than being forced into `false`.
+const optionalTristateBool = z
+  .string()
+  .optional()
+  .transform((value) => (value === undefined ? undefined : value === 'true' || value === '1'));
+
 export const EnvSchema = z.object({
   EL_HOST: z.string().optional(),
   EL_PORT: optionalInt,
@@ -17,20 +24,22 @@ export const EnvSchema = z.object({
   EL_WORKERS_EXCLUDE: z.string().optional(),
   EL_QUEUES_EXCLUDE: z.string().optional(),
 
-  DB_HOSTNAME: z.string().optional(),
-  DB_PORT: optionalInt,
-  DB_USERNAME: z.string().optional(),
-  DB_PASSWORD: z.string().optional(),
-  DB_DATABASE_NAME: z.string().optional(),
-  DB_URL: z.string().optional(),
+  // Single connection string for every environment — local compose, Neon,
+  // or any other managed Postgres. `?sslmode=require` is honoured, and Neon
+  // hostnames enable TLS automatically (see config.repository.ts).
+  DATABASE_URL: z.string().optional(),
   DB_SKIP_MIGRATIONS: optionalBool,
   DB_VECTOR_EXTENSION: z.enum(['vectorchord', 'pgvector']).optional(),
 
+  // Single connection string; `rediss://` enables TLS (Upstash and friends).
+  // The discrete REDIS_* vars below remain supported for the local compose.
+  REDIS_URL: z.string().optional(),
   REDIS_HOSTNAME: z.string().optional(),
   REDIS_PORT: optionalInt,
   REDIS_DBINDEX: z.coerce.number().int().min(0).optional(),
   REDIS_USERNAME: z.string().optional(),
   REDIS_PASSWORD: z.string().optional(),
+  REDIS_TLS: optionalBool,
 
   R2_ENDPOINT: z.string().optional(),
   R2_BUCKET: z.string().optional(),
@@ -47,10 +56,19 @@ export const EnvSchema = z.object({
   MS_CLIENT_ID: z.string().optional(),
   MS_CLIENT_SECRET: z.string().optional(),
 
+  // Email goes out over one of two providers. Explicit selection wins;
+  // otherwise RESEND_API_KEY picks Resend and SMTP_HOST picks SMTP.
+  EMAIL_PROVIDER: z.enum(['resend', 'smtp']).optional(),
+  EMAIL_FROM: z.string().optional(),
+
+  RESEND_API_KEY: z.string().optional(),
+
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: optionalInt,
   SMTP_USERNAME: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
+  SMTP_SECURE: optionalTristateBool,
+  // Deprecated alias for EMAIL_FROM, kept so existing deployments keep sending.
   SMTP_FROM: z.string().optional(),
 
   EL_PUBLIC_BASE_URL: z.string().optional(),

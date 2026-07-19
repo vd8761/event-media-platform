@@ -55,8 +55,8 @@ services:
       EL_WORKERS_INCLUDE: media
       # EL_QUEUES_EXCLUDE: facialRecognition   # ← set ONLY on 2nd..Nth GPU VM
       MACHINE_LEARNING_URL: http://ml:3003
-      DB_HOSTNAME: 100.x.y.z          # tailnet IP of main VM
-      REDIS_HOSTNAME: 100.x.y.z
+      DB_SKIP_MIGRATIONS: "true"      # the main VM owns migrations
+      # DATABASE_URL / REDIS_URL → tailnet IP of the main VM (from .env)
       # R2_* (GPU-VM-scoped token)
     volumes:
       - cache:/cache                  # R2 staging scratch: ≥ concurrency × largest video
@@ -87,12 +87,12 @@ Prereqs: NVIDIA driver + `nvidia-container-toolkit` on the host (the compose `de
 | Group | Vars |
 |---|---|
 | Roles | `EL_WORKERS_INCLUDE` (`api,ingest` \| `media`), `EL_QUEUES_EXCLUDE` (extra GPU VMs: `facialRecognition`) |
-| Database | `DB_HOSTNAME`, `DB_PORT=5432`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE_NAME=eventlens`, `DB_SKIP_MIGRATIONS` |
-| Redis | `REDIS_HOSTNAME`, `REDIS_PORT=6379`, `REDIS_PASSWORD` |
+| Database | `DATABASE_URL` (one connection string for local, self-hosted and Neon alike; `sslmode` honoured, TLS required for any non-local host), `DB_SKIP_MIGRATIONS`, `DB_VECTOR_EXTENSION` (`pgvector` on Neon — VectorChord is not installable there) |
+| Redis | `REDIS_URL` (`redis://` or `rediss://`; TLS is mandatory on Upstash), or the discrete `REDIS_HOSTNAME`/`REDIS_PORT`/`REDIS_PASSWORD`/`REDIS_TLS` |
 | R2 | `R2_ENDPOINT`, `R2_BUCKET=eventlens-media`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` |
 | ML | `MACHINE_LEARNING_URL=http://ml:3003` (worker); sidecar: `MACHINE_LEARNING_MODEL_TTL=0`, `MACHINE_LEARNING_PRELOAD__FACIAL_RECOGNITION__DETECTION/RECOGNITION=buffalo_l`, `MACHINE_LEARNING_CACHE_FOLDER=/cache` |
 | OAuth import | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET` |
-| Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` (bootstrap; runtime-editable in `system_config`) |
+| Email | `EMAIL_PROVIDER` (`resend` \| `smtp`; autodetected from which credential is set), `EMAIL_FROM`, then either `RESEND_API_KEY` or `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_SECURE` (bootstrap; runtime-editable in `system_config`) |
 | App | `EL_PUBLIC_BASE_URL` (email links + OAuth redirect base), `EL_TOKEN_ENCRYPTION_KEY` (32-byte hex — **back up like a DB credential**; loss forces every org to reconnect Drive/OneDrive), `EL_SESSION_TTL` |
 
 ## 4. Network & security checklist

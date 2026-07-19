@@ -11,34 +11,34 @@ export class OrganizationController {
   constructor(private organizationService: OrganizationService) {}
 
   @Get(':orgId')
-  @Authenticated({ orgRole: OrgRole.Member })
+  @Authenticated({ orgRole: OrgRole.Member, allowSuperAdmin: true })
   getOrganization(@Param('orgId') orgId: string) {
     return this.organizationService.get(orgId);
   }
 
   @Get(':orgId/members')
-  @Authenticated({ orgRole: OrgRole.Owner })
+  @Authenticated({ orgRole: OrgRole.Owner, allowSuperAdmin: true })
   listMembers(@Param('orgId') orgId: string) {
     return this.organizationService.listMembers(orgId);
   }
 
   @Post(':orgId/members')
   @HttpCode(204)
-  @Authenticated({ orgRole: OrgRole.Owner })
+  @Authenticated({ orgRole: OrgRole.Owner, allowSuperAdmin: true })
   addMember(@Param('orgId') orgId: string, @Body() dto: AddMemberDto) {
     return this.organizationService.addMember(orgId, dto);
   }
 
   @Put(':orgId/members/:userId')
   @HttpCode(204)
-  @Authenticated({ orgRole: OrgRole.Owner })
+  @Authenticated({ orgRole: OrgRole.Owner, allowSuperAdmin: true })
   updateMember(@Param('orgId') orgId: string, @Param('userId') userId: string, @Body() dto: UpdateMemberDto) {
     return this.organizationService.updateMember(orgId, userId, dto);
   }
 
   @Delete(':orgId/members/:userId')
   @HttpCode(204)
-  @Authenticated({ orgRole: OrgRole.Owner })
+  @Authenticated({ orgRole: OrgRole.Owner, allowSuperAdmin: true })
   removeMember(@Param('orgId') orgId: string, @Param('userId') userId: string) {
     return this.organizationService.removeMember(orgId, userId);
   }

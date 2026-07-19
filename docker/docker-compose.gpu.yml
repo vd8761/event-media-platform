@@ -13,9 +13,28 @@ services:
       # one consumer globally (risk R1):
       # EL_QUEUES_EXCLUDE: facialRecognition
       MACHINE_LEARNING_URL: http://ml:3003
-      # DB_HOSTNAME / REDIS_HOSTNAME: tailnet IP of the main VM (from .env)
+      # Reported on the admin system panel so operators can see which sidecar
+      # build this VM is running.
+      EL_ML_DEVICE: cuda
+      # The main VM already ran them; two processes racing the same migration
+      # is the one thing the advisory lock cannot make cheap.
+      DB_SKIP_MIGRATIONS: "true"
+      # DATABASE_URL / REDIS_URL come from .env — the tailnet IP of the main
+      # VM, or the Neon/Upstash endpoints if those are managed.
     volumes:
       - cache:/cache
+    # The GPU is reserved here purely for telemetry: it puts nvidia-smi and the
+    # driver in this container so the worker's heartbeat can report GPU
+    # utilisation to the admin panel. Inference itself happens in `ml` below.
+    # Drop this block if you would rather not expose the device twice — the
+    # panel then shows the worker's CPU only.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu, utility]
     depends_on:
       - ml
     restart: always

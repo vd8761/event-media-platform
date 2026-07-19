@@ -33,9 +33,8 @@ import { CloudService } from 'src/services/cloud.service';
 import { ImportService } from 'src/services/import.service';
 import { JobItem } from 'src/types';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { adminConnectionOptions, testDatabaseUrl } from './database-url';
 
-const DB_HOST = process.env.DB_HOSTNAME || 'localhost';
-const DB_PORT = Number(process.env.DB_PORT || 5433);
 const TEST_DB = 'eventlens_test_import';
 
 const fileBytes = (id: string) => Buffer.from(`image-bytes-of-${id}`);
@@ -132,22 +131,20 @@ describe('cloud import pipeline (M5)', () => {
   let ownerId: string;
 
   beforeAll(async () => {
-    const admin = new pg.Client({ host: DB_HOST, port: DB_PORT, user: 'postgres', password: 'postgres', database: 'postgres' });
+    const admin = new pg.Client(adminConnectionOptions());
     await admin.connect();
     await admin.query(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`);
     await admin.query(`CREATE DATABASE ${TEST_DB}`);
     await admin.end();
 
-    process.env.DB_HOSTNAME = DB_HOST;
-    process.env.DB_PORT = String(DB_PORT);
-    process.env.DB_DATABASE_NAME = TEST_DB;
+    process.env.DATABASE_URL = testDatabaseUrl(TEST_DB);
     process.env.EL_ENV = 'development';
     process.env.EL_STAGING_FOLDER = mkdtempSync(join(tmpdir(), 'el-import-'));
     clearEnvCache();
 
     db = new Kysely<DB>({
       dialect: new PostgresDialect({
-        pool: new pg.Pool({ host: DB_HOST, port: DB_PORT, user: 'postgres', password: 'postgres', database: TEST_DB }),
+        pool: new pg.Pool({ connectionString: testDatabaseUrl(TEST_DB) }),
       }),
       plugins: [new CamelCasePlugin()],
     });

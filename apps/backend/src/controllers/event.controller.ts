@@ -18,7 +18,7 @@ export class EventController {
   @Get('events')
   @Authenticated()
   listMyEvents(@Auth() auth: AuthDto) {
-    return this.eventRepository.listForUser(auth.user!.id, auth.user!.isSuperAdmin);
+    return this.eventRepository.listForUser(auth.user!.id);
   }
 
   @Get('orgs/:orgId/events')

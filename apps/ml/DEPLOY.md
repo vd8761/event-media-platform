@@ -2,7 +2,31 @@
 
 > `README.md` in this directory is the **verbatim upstream Immich ML README** and is kept byte-for-byte identical to `immich:machine-learning`. This file (`DEPLOY.md`) is the EventLens-specific deployment guide; the upstream README is left untouched on purpose.
 
-A verbatim copy of `immich:machine-learning` (RetinaFace detection + ArcFace recognition, FastAPI). Runs on the **GPU VM** only, next to `backend-worker`, reached over the compose-internal network at `http://ml:3003`. It has no database or Redis access and holds no state beyond the model cache. The backend's media workers call it; participants and organisers never reach it.
+A verbatim copy of `immich:machine-learning` (RetinaFace detection + ArcFace recognition, FastAPI). Runs on the **GPU host** only, next to `backend-worker`, reached over the compose-internal network at `http://ml:3003`. It has no database or Redis access and holds no state beyond the model cache. The backend's media workers call it; participants and organisers never reach it.
+
+---
+
+## Local development
+
+You don't build anything for local work. `docker-compose.dev.yml` pulls the upstream prebuilt **CPU** image and exposes the identical API:
+
+```sh
+docker compose -f docker/docker-compose.dev.yml up -d ml
+curl -fsS http://localhost:3003/ping     # -> "pong"
+```
+
+Then point the backend at it with `MACHINE_LEARNING_URL=http://localhost:3003` and `EL_ML_DEVICE=cpu` (already set in `apps/backend/.env.example`).
+
+| | Local | Production |
+|---|---|---|
+| Image | `ghcr.io/immich-app/immich-machine-learning:release` (pulled) | `eventlens-ml:cuda` (built from this directory) |
+| Device | CPU | CUDA |
+| Address | `http://localhost:3003` (published) | `http://ml:3003` (compose network only, never published) |
+| First boot | Downloads `buffalo_l` (~300 MB) into the `model-cache` volume | Same, then preloads onto the GPU |
+
+Face detection on CPU is materially slower but functionally identical, so the full pipeline can be developed and tested offline.
+
+---
 
 ## Build
 
@@ -18,14 +42,14 @@ docker build --build-arg DEVICE=cpu  -t eventlens-ml:cpu  apps/ml
 
 `docker-compose.gpu.yml` expects the tag `eventlens-ml:cuda`.
 
-> For local development you don't need to build this — `docker-compose.dev.yml` pulls the upstream prebuilt CPU image `ghcr.io/immich-app/immich-machine-learning:release` on port 3003. The API is identical.
-
 ## Host prerequisites (CUDA build)
 
 - NVIDIA driver
 - `nvidia-container-toolkit`
 
 GPU passthrough is declared in `docker-compose.gpu.yml` via `deploy.resources.reservations.devices` (`driver: nvidia`, `capabilities: [gpu]`) — the same mechanism as Immich's `hwaccel.ml.yml` cuda variant.
+
+> `backend-worker` in the same compose file reserves the device too, with `capabilities: [gpu, utility]`. That is **not** for inference — it only puts `nvidia-smi` in the worker container so its heartbeat can report GPU utilisation to the admin System panel. All inference still happens here in `ml`. Removing that block costs you the GPU figures on the dashboard and nothing else.
 
 ## Deploy
 

@@ -162,6 +162,63 @@ export interface JobQueue {
   active: { name: string; data: Record<string, unknown>; startedAt: number | null }[];
 }
 
+// Counts only, by design: a super admin administers organizations but cannot
+// see inside their events, so no event name ever reaches this payload.
+export interface OrgStatsRow {
+  orgId: string;
+  name: string;
+  slug: string;
+  eventCount: number;
+  assetCount: number;
+  storageBytes: number;
+  personCount: number;
+  participantCount: number;
+  personsPerEvent: number;
+}
+
+export interface AdminStats {
+  organizations: number;
+  users: number;
+  events: number;
+  assets: number;
+  storageBytes: number;
+  people: number;
+  participants: number;
+  byOrganization: OrgStatsRow[];
+}
+
+export interface GpuStatus {
+  index: number;
+  name: string;
+  utilizationPercent: number | null;
+  memoryUsedMb: number | null;
+  memoryTotalMb: number | null;
+  temperatureC: number | null;
+}
+
+// One entry per process currently heartbeating into Redis — this is how the
+// GPU machine's figures reach an API running somewhere else entirely.
+export interface InstanceStatus {
+  instanceId: string;
+  hostname: string;
+  roles: string[];
+  platform: string;
+  arch: string;
+  cpuModel: string;
+  cpuCount: number;
+  cpuPercent: number;
+  memoryTotal: number;
+  memoryUsed: number;
+  uptimeSeconds: number;
+  processUptimeSeconds: number;
+  rssBytes: number;
+  nodeVersion: string;
+  mlDevice: 'cpu' | 'cuda';
+  gpus: GpuStatus[];
+  gpuError: string | null;
+  reportedAt: string;
+}
+
 export interface SystemStatus {
   machineLearning: {
     device: 'cpu' | 'cuda';
@@ -186,6 +243,7 @@ export interface SystemStatus {
     workers: string[];
     excludedQueues: string[];
   };
+  instances: InstanceStatus[];
   database: { vectorExtension: string; version: string };
 }
 
@@ -276,10 +334,7 @@ export const api = {
     updateOrg: (orgId: string, body: Partial<{ name: string; slug: string; status: string }>) =>
       put<Organization>(`/admin/organizations/${orgId}`, body),
     removeOrg: (orgId: string) => del<void>(`/admin/organizations/${orgId}`),
-    stats: () =>
-      get<{ organizations: number; users: number; events: number; assets: number; storageBytes: number; participants: number }>(
-        '/admin/stats',
-      ),
+    stats: () => get<AdminStats>('/admin/stats'),
     queues: () => get<Record<string, QueueCounts>>('/admin/queues'),
     queueAction: (name: string, action: string) => post<void>(`/admin/queues/${name}/${action}`),
     jobs: () => get<{ queues: JobQueue[] }>('/admin/jobs'),

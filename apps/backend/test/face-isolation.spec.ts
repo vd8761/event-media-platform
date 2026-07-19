@@ -25,9 +25,8 @@ import { FaceService } from 'src/services/face.service';
 import { DB } from 'src/schema';
 import { JobItem } from 'src/types';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { adminConnectionOptions, testDatabaseUrl } from './database-url';
 
-const DB_HOST = process.env.DB_HOSTNAME || 'localhost';
-const DB_PORT = Number(process.env.DB_PORT || 5433);
 const TEST_DB = 'eventlens_test';
 
 // 512-d unit vectors. Same identity = tiny angular perturbations of one base
@@ -71,21 +70,19 @@ describe('cross-event face isolation (risk R2)', () => {
 
   beforeAll(async () => {
     // fresh test database
-    const admin = new pg.Client({ host: DB_HOST, port: DB_PORT, user: 'postgres', password: 'postgres', database: 'postgres' });
+    const admin = new pg.Client(adminConnectionOptions());
     await admin.connect();
     await admin.query(`DROP DATABASE IF EXISTS ${TEST_DB} WITH (FORCE)`);
     await admin.query(`CREATE DATABASE ${TEST_DB}`);
     await admin.end();
 
-    process.env.DB_HOSTNAME = DB_HOST;
-    process.env.DB_PORT = String(DB_PORT);
-    process.env.DB_DATABASE_NAME = TEST_DB;
+    process.env.DATABASE_URL = testDatabaseUrl(TEST_DB);
     process.env.EL_ENV = 'development';
     clearEnvCache();
 
     db = new Kysely<DB>({
       dialect: new PostgresDialect({
-        pool: new pg.Pool({ host: DB_HOST, port: DB_PORT, user: 'postgres', password: 'postgres', database: TEST_DB }),
+        pool: new pg.Pool({ connectionString: testDatabaseUrl(TEST_DB) }),
       }),
       plugins: [new CamelCasePlugin()],
     });

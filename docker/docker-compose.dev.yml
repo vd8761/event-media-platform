@@ -1,5 +1,11 @@
-# Local development: Postgres (VectorChord) + Redis only; run the backend with
-# `pnpm --filter backend start:dev`.
+# Local development, fully offline: Postgres (VectorChord), Redis, the ML
+# sidecar, a MinIO stand-in for R2 and a Mailpit stand-in for Resend/SMTP.
+# Nothing here reaches the internet after the first image pull and model
+# download, so the whole app runs with no managed service of any kind.
+#
+# Run the backend against it with `pnpm --filter backend start:dev` — the
+# config defaults already point at these ports, so only the R2 and SMTP
+# settings need an env file (see apps/backend/.env.example).
 name: eventlens-dev
 
 services:

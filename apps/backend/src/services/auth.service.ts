@@ -30,6 +30,11 @@ export interface AuthenticateOptions {
   superAdmin?: boolean;
   orgRole?: OrgRole;
   participant?: boolean;
+  // Opt-in membership bypass for super admins on org-administration routes.
+  // Deliberately fail-closed: without this flag a super admin is treated as a
+  // non-member, so any org-scoped route added later (and every event route)
+  // stays closed to them until someone opts it in on purpose.
+  allowSuperAdmin?: boolean;
 }
 
 export interface AuthenticateRequest {
@@ -70,7 +75,7 @@ export class AuthService {
     }
 
     if (options.orgRole) {
-      await this.verifyOrgRole(auth, options.orgRole, pathParams);
+      await this.verifyOrgRole(auth, options.orgRole, pathParams, options.allowSuperAdmin ?? false);
     }
 
     return auth;
@@ -123,9 +128,22 @@ export class AuthService {
   }
 
   // Org resolved from orgId/eventId path params, never from the body
-  // (docs/plan/09-api-surface.md §1). Super admins bypass membership.
-  private async verifyOrgRole(auth: AuthDto, requiredRole: OrgRole, pathParams: Record<string, string>): Promise<void> {
-    if (auth.user!.isSuperAdmin) {
+  // (docs/plan/09-api-surface.md §1).
+  //
+  // Super admins administer organizations but have no access to the media
+  // inside them: they may bypass membership only on routes that opted in via
+  // { allowSuperAdmin: true }, and never on an event-scoped route. Every
+  // event route carries :eventId, so that second check is what keeps photos,
+  // people and participants out of reach even if a future route opts in by
+  // mistake.
+  private async verifyOrgRole(
+    auth: AuthDto,
+    requiredRole: OrgRole,
+    pathParams: Record<string, string>,
+    allowSuperAdmin: boolean,
+  ): Promise<void> {
+    const isEventScoped = !!pathParams.eventId;
+    if (auth.user!.isSuperAdmin && allowSuperAdmin && !isEventScoped) {
       return;
     }
 

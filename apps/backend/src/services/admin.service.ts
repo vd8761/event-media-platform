@@ -8,6 +8,7 @@ import { JobName, QueueCleanType, QueueName } from 'src/enum';
 import { ConfigRepository } from 'src/repositories/config.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { MachineLearningRepository } from 'src/repositories/machine-learning.repository';
+import { sampleCpuPercent, TelemetryRepository } from 'src/repositories/telemetry.repository';
 import { DB } from 'src/schema';
 import { JobCounts, QUEUE_CONCURRENCY, QUEUE_ROLES } from 'src/types';
 
@@ -72,33 +73,6 @@ const QUEUE_INFO: Record<QueueName, { label: string; description: string; jobs: 
   },
 };
 
-// Sample the CPU counters twice so the reported figure is a real utilisation
-// percentage rather than an average since boot.
-async function sampleCpuPercent(windowMs = 250): Promise<number> {
-  const snapshot = () => {
-    let idle = 0;
-    let total = 0;
-    for (const cpu of cpus()) {
-      for (const value of Object.values(cpu.times)) {
-        total += value;
-      }
-      idle += cpu.times.idle;
-    }
-    return { idle, total };
-  };
-
-  const first = snapshot();
-  await new Promise((resolve) => setTimeout(resolve, windowMs));
-  const second = snapshot();
-
-  const totalDelta = second.total - first.total;
-  const idleDelta = second.idle - first.idle;
-  if (totalDelta <= 0) {
-    return 0;
-  }
-  return Math.round((1 - idleDelta / totalDelta) * 1000) / 10;
-}
-
 @Injectable()
 export class AdminService {
   constructor(
@@ -106,9 +80,24 @@ export class AdminService {
     private configRepository: ConfigRepository,
     private jobRepository: JobRepository,
     private machineLearningRepository: MachineLearningRepository,
+    private telemetryRepository: TelemetryRepository,
   ) {}
 
+  // Platform totals plus a per-organization breakdown. Deliberately counts
+  // only: a super admin administers organizations but cannot see inside their
+  // events, so no event name, asset or person ever appears here — just how
+  // many of each an org holds.
   async getStats() {
+    // `organizations` stays the platform total; the per-org rows live under
+    // their own key so the two never get confused.
+    const [totals, byOrganization] = await Promise.all([
+      this.getTotals(),
+      this.getOrganizationBreakdown(),
+    ]);
+    return { ...totals, byOrganization };
+  }
+
+  private async getTotals() {
     const [row] = await this.db
       .selectNoFrom((eb) => [
         eb.selectFrom('organization').where('deletedAt', 'is', null).select(sql<number>`count(*)::int`.as('count')).as('organizations'),
@@ -116,10 +105,77 @@ export class AdminService {
         eb.selectFrom('event').where('deletedAt', 'is', null).select(sql<number>`count(*)::int`.as('count')).as('events'),
         eb.selectFrom('asset').where('deletedAt', 'is', null).select(sql<number>`count(*)::int`.as('count')).as('assets'),
         eb.selectFrom('asset').where('deletedAt', 'is', null).select(sql<number>`coalesce(sum(file_size), 0)::bigint`.as('sum')).as('storageBytes'),
+        eb.selectFrom('person').select(sql<number>`count(*)::int`.as('count')).as('people'),
         eb.selectFrom('participant').where('deletedAt', 'is', null).select(sql<number>`count(*)::int`.as('count')).as('participants'),
       ])
       .execute();
     return row;
+  }
+
+  // Correlated scalar subqueries rather than joins: joining events, assets,
+  // people and participants in one pass would multiply the counts together.
+  private async getOrganizationBreakdown() {
+    const rows = await this.db
+      .selectFrom('organization')
+      .where('organization.deletedAt', 'is', null)
+      .select((eb) => [
+        'organization.id as orgId',
+        'organization.name as name',
+        'organization.slug as slug',
+        eb
+          .selectFrom('event')
+          .whereRef('event.orgId', '=', 'organization.id')
+          .where('event.deletedAt', 'is', null)
+          .select(sql<number>`count(*)::int`.as('value'))
+          .as('eventCount'),
+        eb
+          .selectFrom('asset')
+          .whereRef('asset.orgId', '=', 'organization.id')
+          .where('asset.deletedAt', 'is', null)
+          .select(sql<number>`count(*)::int`.as('value'))
+          .as('assetCount'),
+        eb
+          .selectFrom('asset')
+          .whereRef('asset.orgId', '=', 'organization.id')
+          .where('asset.deletedAt', 'is', null)
+          .select(sql<number>`coalesce(sum(file_size), 0)::bigint`.as('value'))
+          .as('storageBytes'),
+        eb
+          .selectFrom('person')
+          .whereRef('person.orgId', '=', 'organization.id')
+          .select(sql<number>`count(*)::int`.as('value'))
+          .as('personCount'),
+        eb
+          .selectFrom('participant')
+          .innerJoin('event', 'event.id', 'participant.eventId')
+          .whereRef('event.orgId', '=', 'organization.id')
+          .where('participant.deletedAt', 'is', null)
+          .where('event.deletedAt', 'is', null)
+          .select(sql<number>`count(*)::int`.as('value'))
+          .as('participantCount'),
+      ])
+      .orderBy('organization.name')
+      .execute();
+
+    // A subquery over zero rows types as nullable; flatten to 0 so the API
+    // contract is plain numbers.
+    return rows.map((row) => {
+      const eventCount = row.eventCount ?? 0;
+      const personCount = row.personCount ?? 0;
+      return {
+        orgId: row.orgId,
+        name: row.name,
+        slug: row.slug,
+        eventCount,
+        personCount,
+        assetCount: row.assetCount ?? 0,
+        storageBytes: Number(row.storageBytes ?? 0),
+        participantCount: row.participantCount ?? 0,
+        // "people per event" as an average — a per-event list would leak which
+        // events exist and how big each one is.
+        personsPerEvent: eventCount > 0 ? Math.round((personCount / eventCount) * 10) / 10 : 0,
+      };
+    });
   }
 
   async getQueues(): Promise<Record<string, JobCounts & { isPaused: boolean }>> {
@@ -181,13 +237,17 @@ export class AdminService {
     return this.jobRepository.getFailedJobs(name as QueueName);
   }
 
-  // Host + sidecar health for the "system status" card. Everything here is
-  // measured except machineLearning.device, which is reported from config.
+  // Host + sidecar health for the "system status" card.
+  //
+  // `instances` is every process currently heartbeating into Redis, which is
+  // how the GPU box's CPU/GPU figures reach an API running on another machine
+  // — os.cpus() here would only ever describe the API's own container.
   async getSystemStatus() {
     const env = this.configRepository.getEnv();
-    const [cpuPercent, mlServers] = await Promise.all([
+    const [cpuPercent, mlServers, instances] = await Promise.all([
       sampleCpuPercent(),
       this.machineLearningRepository.getServerStatus(),
+      this.telemetryRepository.getInstances().catch(() => []),
     ]);
 
     const memoryTotal = totalmem();
@@ -200,6 +260,8 @@ export class AdminService {
         deviceIsConfigured: true,
         servers: mlServers,
       },
+      // The API's own host, measured directly — kept so the panel still shows
+      // something if Redis telemetry is unavailable.
       host: {
         platform: platform(),
         arch: arch(),
@@ -218,6 +280,7 @@ export class AdminService {
         workers: env.workers,
         excludedQueues: env.excludedQueues,
       },
+      instances,
       database: {
         vectorExtension: env.database.vectorExtension,
         version: await this.getDatabaseVersion(),

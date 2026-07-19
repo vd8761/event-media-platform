@@ -3,7 +3,6 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { AdminSignupDto, AuthDto, ChangePasswordDto, LoginDetails, LoginDto, LoginResponseDto } from 'src/dtos/auth.dto';
-import { OrgRole } from 'src/enum';
 import { Auth, Authenticated, GetLoginDetails } from 'src/middleware/auth.guard';
 import { ConfigRepository } from 'src/repositories/config.repository';
 import { OrganizationRepository } from 'src/repositories/organization.repository';
@@ -55,22 +54,14 @@ export class AuthController {
   @Authenticated()
   async me(@Auth() auth: AuthDto) {
     const user = auth.user!;
-    // Super admins bypass membership in verifyOrgRole, so /me must report every
-    // org they can actually act on — otherwise the UI hides org-scoped actions
-    // (e.g. "New event") from the one account that is allowed to do everything.
-    const organizations = user.isSuperAdmin
-      ? (await this.organizationRepository.list()).map(({ id, name, slug }) => ({
-          id,
-          name,
-          slug,
-          role: OrgRole.Owner,
-        }))
-      : (await this.organizationRepository.listForUser(user.id)).map(({ id, name, slug, role }) => ({
-          id,
-          name,
-          slug,
-          role,
-        }));
+    // Real memberships only, super admin or not. A super admin administers
+    // organizations through /admin/** and is not a member of any of them, so
+    // this list is normally empty — which is what hides the event UI from
+    // them. Reporting fabricated owner rows here would put "New event" and the
+    // event nav back on screen for an account the API will refuse.
+    const organizations = (await this.organizationRepository.listForUser(user.id)).map(
+      ({ id, name, slug, role }) => ({ id, name, slug, role }),
+    );
 
     return {
       id: user.id,

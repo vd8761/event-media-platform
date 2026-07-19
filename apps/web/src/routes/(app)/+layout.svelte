@@ -18,12 +18,18 @@
   // Mobile: the rail collapses into a dismissable drawer (MD3 modal nav drawer).
   let drawerOpen = $state(false);
 
+  // A super admin administers organizations but has no access to the events
+  // inside them, so the event-side nav is driven purely by real memberships —
+  // which a super admin normally has none of. Showing those links anyway would
+  // lead to pages the API answers with 403.
   const isOrgAdmin = $derived(
-    data.me.isSuperAdmin || data.me.organizations.some((org) => org.role === 'owner' || org.role === 'admin'),
+    data.me.organizations.some((org) => org.role === 'owner' || org.role === 'admin'),
   );
+  const hasOrgMembership = $derived(data.me.organizations.length > 0);
+  const homeHref = $derived(hasOrgMembership ? '/events' : '/admin/organizations');
 
   const navItems = $derived([
-    { href: '/events', label: 'Events', icon: mdiCalendarMultiple, show: true },
+    { href: '/events', label: 'Events', icon: mdiCalendarMultiple, show: hasOrgMembership },
     { href: '/settings/cloud-accounts', label: 'Cloud accounts', icon: mdiCloudOutline, show: isOrgAdmin },
     { href: '/admin/organizations', label: 'Organizations', icon: mdiDomain, show: data.me.isSuperAdmin },
     { href: '/admin/jobs', label: 'Jobs', icon: mdiSync, show: data.me.isSuperAdmin },
@@ -56,7 +62,7 @@
       transition-transform duration-300 lg:w-60 lg:translate-x-0
       {drawerOpen ? 'translate-x-0' : '-translate-x-full'}"
   >
-    <a href="/events" class="mb-8 flex items-center gap-3 px-3" onclick={() => (drawerOpen = false)}>
+    <a href={homeHref} class="mb-8 flex items-center gap-3 px-3" onclick={() => (drawerOpen = false)}>
       <div class="bg-immich-primary flex h-10 w-10 items-center justify-center rounded-2xl text-sm font-bold text-white">
         EL
       </div>

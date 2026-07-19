@@ -11,9 +11,8 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $work = Join-Path $env:LOCALAPPDATA 'eventlens-dev'
 
-$env:DB_HOSTNAME = 'localhost'
-$env:DB_PORT = '5433'
-$env:REDIS_HOSTNAME = 'localhost'
+$env:DATABASE_URL = 'postgres://postgres:postgres@localhost:5433/eventlens'
+$env:REDIS_URL = 'redis://localhost:6379'
 $env:EL_ENV = 'development'
 $env:EL_WORKERS_INCLUDE = 'api,ingest,media'
 $env:MACHINE_LEARNING_URL = 'http://localhost:3003'
@@ -24,9 +23,10 @@ $env:R2_ACCESS_KEY_ID = 'eventlens'
 $env:R2_SECRET_ACCESS_KEY = 'eventlens-secret'
 $env:EL_STAGING_FOLDER = Join-Path $work 'staging'
 $env:EL_CACHE_FOLDER = Join-Path $work 'cache'
+$env:EMAIL_PROVIDER = 'smtp'
 $env:SMTP_HOST = 'localhost'
 $env:SMTP_PORT = '1025'
-$env:SMTP_FROM = 'EventLens <no-reply@eventlens.test>'
+$env:EMAIL_FROM = 'EventLens <no-reply@eventlens.test>'
 $env:EL_PUBLIC_BASE_URL = 'http://localhost:5173'
 
 New-Item -ItemType Directory -Force -Path $env:EL_STAGING_FOLDER, $env:EL_CACHE_FOLDER | Out-Null
