@@ -57,6 +57,24 @@ export class AdminController {
     return this.adminService.getQueues();
   }
 
+  @Get('jobs')
+  @Authenticated({ superAdmin: true })
+  getJobs() {
+    return this.adminService.getJobs();
+  }
+
+  @Get('queues/:name/failed')
+  @Authenticated({ superAdmin: true })
+  getFailedJobs(@Param('name') name: string) {
+    return this.adminService.getFailedJobs(name);
+  }
+
+  @Get('system')
+  @Authenticated({ superAdmin: true })
+  getSystemStatus() {
+    return this.adminService.getSystemStatus();
+  }
+
   @Post('queues/:name/:action')
   @HttpCode(204)
   @Authenticated({ superAdmin: true })

@@ -1,17 +1,10 @@
 <script lang="ts">
-  import { api, sha1Hex, uploadAsset, type AssetItem } from '$lib/api';
+  import { api, sha1Hex, uploadAsset, type AssetItem, type ProcessingStatus } from '$lib/api';
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
-  import { Button, IconButton, LoadingSpinner } from '@immich/ui';
-  import {
-    mdiChevronLeft,
-    mdiChevronRight,
-    mdiClose,
-    mdiDelete,
-    mdiDownload,
-    mdiImageOff,
-    mdiUpload,
-  } from '@mdi/js';
-  import { Icon } from '@immich/ui';
+  import PhotoViewer from '$lib/components/PhotoViewer.svelte';
+  import ProcessingBar from '$lib/components/ProcessingBar.svelte';
+  import { Button, Icon, IconButton, LoadingSpinner } from '@immich/ui';
+  import { mdiAlertCircleOutline, mdiCheckCircle, mdiChevronDown, mdiClose, mdiImageOff, mdiUpload } from '@mdi/js';
   import { onDestroy, onMount } from 'svelte';
 
   let { data } = $props();
@@ -26,105 +19,203 @@
   let loading = $state(true);
   let viewerIndex = $state(-1);
   let fileInput = $state<HTMLInputElement | null>(null);
+  let processing = $state<ProcessingStatus | null>(null);
 
-  // upload panel state (per-file, Immich upload store pattern)
+  // --- upload panel (Immich UploadPanel pattern) ---
+  // Items live in this $state array and are only ever mutated *through it*.
+  // Holding a reference to the original object and mutating that instead is
+  // the classic Svelte 5 trap: the proxy keeps serving the stale value, so the
+  // progress bar freezes even though the upload is running fine.
   interface UploadItem {
+    id: number;
     name: string;
     state: 'pending' | 'hashing' | 'uploading' | 'done' | 'duplicate' | 'error';
     progress: number;
     error?: string;
   }
+
+  const UPLOAD_CONCURRENCY = 3;
   let uploads = $state<UploadItem[]>([]);
-  const uploadsActive = $derived(uploads.some((u) => u.state !== 'done' && u.state !== 'duplicate' && u.state !== 'error'));
+  let uploadPanelOpen = $state(true);
+  let nextUploadId = 0;
+  let dismissTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const uploadSummary = $derived.by(() => {
+    let active = 0;
+    let done = 0;
+    let duplicate = 0;
+    let failed = 0;
+    let progressTotal = 0;
+    for (const upload of uploads) {
+      switch (upload.state) {
+        case 'done': {
+          done++;
+          progressTotal += 100;
+          break;
+        }
+        case 'duplicate': {
+          duplicate++;
+          progressTotal += 100;
+          break;
+        }
+        case 'error': {
+          failed++;
+          progressTotal += 100;
+          break;
+        }
+        default: {
+          active++;
+          progressTotal += upload.state === 'uploading' ? upload.progress : 0;
+        }
+      }
+    }
+    return {
+      active,
+      done,
+      duplicate,
+      failed,
+      finished: active === 0,
+      percent: uploads.length > 0 ? Math.round(progressTotal / uploads.length) : 0,
+    };
+  });
+
+  function patchUpload(id: number, changes: Partial<UploadItem>) {
+    const index = uploads.findIndex((upload) => upload.id === id);
+    if (index !== -1) {
+      Object.assign(uploads[index], changes);
+    }
+  }
 
   let pollTimer: ReturnType<typeof setInterval> | undefined;
 
   async function refresh(showSpinner = false) {
-    if (showSpinner) loading = true;
-    const first = await api.assets.list(eventId);
+    if (showSpinner) {
+      loading = true;
+    }
+    const [first, status] = await Promise.all([api.assets.list(eventId), api.events.processing(eventId)]);
     assets = first.assets;
     nextCursor = first.nextCursor;
+    processing = status;
     loading = false;
     schedulePolling();
   }
 
-  // processing badge: poll while anything is not yet processed (docs/plan/10 §5)
+  // Poll while anything is still moving through the pipeline — derivative
+  // generation or face detection (docs/plan/10 §5).
   function schedulePolling() {
-    const hasProcessing = assets.some((asset) => asset.status !== 'processed' && asset.status !== 'failed');
-    if (hasProcessing && !pollTimer) {
-      pollTimer = setInterval(() => void refresh(), 5000);
-    } else if (!hasProcessing && pollTimer) {
+    const busy =
+      assets.some((asset) => asset.status !== 'processed' && asset.status !== 'failed') ||
+      (processing?.assets.pendingDetection ?? 0) > 0 ||
+      (processing?.assets.pendingMedia ?? 0) > 0;
+
+    if (busy && !pollTimer) {
+      pollTimer = setInterval(() => void refresh(), 4000);
+    } else if (!busy && pollTimer) {
       clearInterval(pollTimer);
       pollTimer = undefined;
     }
   }
 
   async function loadMore() {
-    if (!nextCursor) return;
+    if (!nextCursor) {
+      return;
+    }
     const next = await api.assets.list(eventId, nextCursor);
     assets = [...assets, ...next.assets];
     nextCursor = next.nextCursor;
   }
 
-  async function onFilesPicked(list: FileList | null) {
-    if (!list || list.length === 0) return;
-    const files = [...list];
-    if (fileInput) fileInput.value = '';
+  async function uploadOne(item: UploadItem, file: File) {
+    try {
+      patchUpload(item.id, { state: 'hashing' });
 
-    const items: UploadItem[] = files.map((file) => ({ name: file.name, state: 'pending', progress: 0 }));
+      // SHA-1 preflight — known duplicates are never sent (docs/plan/04 §3)
+      const checksum = await sha1Hex(file);
+      const { results } = await api.assets.bulkUploadCheck(eventId, [{ id: file.name, checksum }]);
+      if (results[0]?.action === 'reject') {
+        patchUpload(item.id, { state: 'duplicate' });
+        return;
+      }
+
+      patchUpload(item.id, { state: 'uploading', progress: 0 });
+      const result = await uploadAsset(eventId, file, (percent) => patchUpload(item.id, { progress: percent }));
+      patchUpload(item.id, { state: result.status === 'duplicate' ? 'duplicate' : 'done', progress: 100 });
+    } catch (error) {
+      patchUpload(item.id, { state: 'error', error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  async function onFilesPicked(list: FileList | null) {
+    if (!list || list.length === 0) {
+      return;
+    }
+    const files = [...list];
+    if (fileInput) {
+      fileInput.value = '';
+    }
+    if (dismissTimer) {
+      clearTimeout(dismissTimer);
+      dismissTimer = undefined;
+    }
+
+    uploadPanelOpen = true;
+    const items: UploadItem[] = files.map((file) => ({
+      id: nextUploadId++,
+      name: file.name,
+      state: 'pending',
+      progress: 0,
+    }));
     uploads = [...items, ...uploads];
 
-    // SHA-1 preflight — known duplicates are never sent (docs/plan/04 §3)
-    for (const [index, file] of files.entries()) {
-      const item = items[index];
-      try {
-        item.state = 'hashing';
-        uploads = [...uploads];
-        const checksum = await sha1Hex(file);
-        const { results } = await api.assets.bulkUploadCheck(eventId, [{ id: file.name, checksum }]);
-        if (results[0]?.action === 'reject') {
-          item.state = 'duplicate';
-          uploads = [...uploads];
-          continue;
-        }
-        item.state = 'uploading';
-        uploads = [...uploads];
-        const result = await uploadAsset(eventId, file, (percent) => {
-          item.progress = percent;
-          uploads = [...uploads];
-        });
-        item.state = result.status === 'duplicate' ? 'duplicate' : 'done';
-      } catch (error) {
-        item.state = 'error';
-        item.error = `${error}`;
+    // Small worker pool: a long single-file queue is what made this look
+    // frozen when someone dropped in a whole camera roll.
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < files.length) {
+        const current = cursor++;
+        await uploadOne(items[current], files[current]);
       }
-      uploads = [...uploads];
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, files.length) }, worker));
+
     await refresh();
+
+    // Clean runs disappear on their own; anything with a duplicate or a
+    // failure stays up so it can actually be read.
+    if (uploads.every((upload) => upload.state === 'done')) {
+      dismissTimer = setTimeout(() => (uploads = []), 4000);
+    }
   }
 
   async function deleteAsset(assetId: string) {
-    if (!confirm('Delete this photo? It will be removed from all galleries.')) return;
+    if (!confirm('Delete this photo? It will be removed from all galleries.')) {
+      return;
+    }
     await api.assets.remove(eventId, [assetId]);
     viewerIndex = -1;
     await refresh();
   }
 
-  function onKeydown(event: KeyboardEvent) {
-    if (viewerIndex < 0) return;
-    if (event.key === 'Escape') viewerIndex = -1;
-    if (event.key === 'ArrowRight' && viewerIndex < assets.length - 1) viewerIndex++;
-    if (event.key === 'ArrowLeft' && viewerIndex > 0) viewerIndex--;
+  async function reprocessFaces() {
+    const { queued } = await api.events.reprocessFaces(eventId, false);
+    alert(queued > 0 ? `Queued face detection for ${queued} photo${queued === 1 ? '' : 's'}.` : 'Nothing pending — every photo has already been through detection.');
+    await refresh();
   }
 
   onMount(() => void refresh(true));
-  onDestroy(() => pollTimer && clearInterval(pollTimer));
+  onDestroy(() => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+    }
+    if (dismissTimer) {
+      clearTimeout(dismissTimer);
+    }
+  });
 </script>
 
-<svelte:window onkeydown={onKeydown} />
 <svelte:head><title>{data.event.name} — EventLens</title></svelte:head>
 
-<div class="mb-4 flex items-center justify-between">
+<div class="mb-4 flex items-center justify-between gap-4">
   <p class="text-sm text-gray-500">{assets.length} item{assets.length === 1 ? '' : 's'}</p>
   <input
     bind:this={fileInput}
@@ -136,6 +227,10 @@
   />
   <Button leadingIcon={mdiUpload} onclick={() => fileInput?.click()}>Upload</Button>
 </div>
+
+{#if processing}
+  <ProcessingBar status={processing} {canManage} onReprocess={reprocessFaces} />
+{/if}
 
 {#if loading}
   <div class="flex justify-center py-20"><LoadingSpinner size="giant" /></div>
@@ -154,73 +249,99 @@
   {/if}
 {/if}
 
-<!-- upload progress panel (Immich UploadPanel pattern) -->
+<!-- upload progress panel -->
 {#if uploads.length > 0}
-  <div class="fixed bottom-4 end-4 z-40 w-80 rounded-2xl border border-gray-200 bg-white p-4 shadow-xl">
-    <div class="mb-2 flex items-center justify-between">
-      <p class="text-sm font-semibold">Uploads</p>
-      {#if !uploadsActive}
-        <IconButton icon={mdiClose} aria-label="Dismiss" size="small" variant="ghost" onclick={() => (uploads = [])} />
-      {/if}
-    </div>
-    <div class="immich-scrollbar max-h-56 space-y-2 overflow-y-auto">
-      {#each uploads as upload (upload.name + upload.state)}
-        <div class="text-xs">
-          <div class="flex justify-between gap-2">
-            <span class="truncate">{upload.name}</span>
-            <span class="shrink-0 text-gray-500">
-              {#if upload.state === 'uploading'}{upload.progress}%{:else}{upload.state}{/if}
-            </span>
-          </div>
-          {#if upload.state === 'uploading' || upload.state === 'hashing'}
-            <div class="mt-1 h-1 overflow-hidden rounded bg-gray-200">
-              <div class="h-full bg-immich-primary transition-all" style="width: {upload.state === 'hashing' ? 5 : upload.progress}%"></div>
-            </div>
+  <div class="fixed bottom-4 end-4 z-40 w-80 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
+    <div class="flex items-center justify-between gap-2 px-4 py-3">
+      <div class="min-w-0">
+        <p class="truncate text-sm font-semibold">
+          {#if uploadSummary.finished}
+            Upload complete
+          {:else}
+            Uploading {uploadSummary.done + uploadSummary.duplicate + uploadSummary.failed + 1} of {uploads.length}
           {/if}
-        </div>
-      {/each}
+        </p>
+        <p class="truncate text-xs text-gray-500">
+          {uploadSummary.done} uploaded{#if uploadSummary.duplicate > 0}, {uploadSummary.duplicate} already here{/if}{#if uploadSummary.failed > 0}, {uploadSummary.failed} failed{/if}
+        </p>
+      </div>
+      <div class="flex shrink-0 items-center">
+        <IconButton
+          icon={mdiChevronDown}
+          aria-label={uploadPanelOpen ? 'Collapse' : 'Expand'}
+          size="small"
+          variant="ghost"
+          color="secondary"
+          class={uploadPanelOpen ? '' : 'rotate-180'}
+          onclick={() => (uploadPanelOpen = !uploadPanelOpen)}
+        />
+        {#if uploadSummary.finished}
+          <IconButton
+            icon={mdiClose}
+            aria-label="Dismiss"
+            size="small"
+            variant="ghost"
+            color="secondary"
+            onclick={() => (uploads = [])}
+          />
+        {/if}
+      </div>
     </div>
+
+    <!-- overall progress: always advances, even between files -->
+    <div class="h-1 bg-gray-100">
+      <div
+        class="h-full transition-all duration-300 {uploadSummary.failed > 0 ? 'bg-red-500' : 'bg-immich-primary'}"
+        style="width: {uploadSummary.percent}%"
+      ></div>
+    </div>
+
+    {#if uploadPanelOpen}
+      <div class="immich-scrollbar max-h-56 space-y-2 overflow-y-auto p-4 pt-3">
+        {#each uploads as upload (upload.id)}
+          <div class="text-xs">
+            <div class="flex items-center justify-between gap-2">
+              <span class="truncate">{upload.name}</span>
+              <span class="flex shrink-0 items-center gap-1 text-gray-500">
+                {#if upload.state === 'uploading'}
+                  {upload.progress}%
+                {:else if upload.state === 'hashing'}
+                  checking…
+                {:else if upload.state === 'pending'}
+                  queued
+                {:else if upload.state === 'done'}
+                  <Icon icon={mdiCheckCircle} size="1rem" class="text-green-600" />
+                {:else if upload.state === 'duplicate'}
+                  already here
+                {:else}
+                  <Icon icon={mdiAlertCircleOutline} size="1rem" class="text-red-600" />
+                {/if}
+              </span>
+            </div>
+            {#if upload.state === 'uploading'}
+              <div class="mt-1 h-1 overflow-hidden rounded bg-gray-200">
+                <div class="bg-immich-primary h-full transition-all" style="width: {upload.progress}%"></div>
+              </div>
+            {/if}
+            {#if upload.state === 'error' && upload.error}
+              <p class="mt-0.5 text-[11px] text-red-600">{upload.error}</p>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
   </div>
 {/if}
 
-<!-- lightbox viewer -->
 {#if viewerIndex >= 0 && assets[viewerIndex]}
-  {@const current = assets[viewerIndex]}
-  <div class="fixed inset-0 z-50 flex flex-col bg-black/95">
-    <div class="flex items-center justify-between p-4 text-white">
-      <p class="truncate text-sm">{current.originalFilename}</p>
-      <div class="flex gap-1">
-        <IconButton
-          icon={mdiDownload}
-          aria-label="Download"
-          variant="ghost"
-          color="secondary"
-          href={api.assets.downloadUrl(eventId, current.id)}
-        />
-        {#if canManage}
-          <IconButton
-            icon={mdiDelete}
-            aria-label="Delete"
-            variant="ghost"
-            color="danger"
-            onclick={() => deleteAsset(current.id)}
-          />
-        {/if}
-        <IconButton icon={mdiClose} aria-label="Close" variant="ghost" color="secondary" onclick={() => (viewerIndex = -1)} />
-      </div>
-    </div>
-    <div class="relative flex flex-1 items-center justify-center overflow-hidden px-14 pb-6">
-      {#if viewerIndex > 0}
-        <button class="absolute start-3 z-10 rounded-full bg-white/10 p-2 text-white hover:bg-white/20" onclick={() => viewerIndex--}>
-          <Icon icon={mdiChevronLeft} size="2rem" />
-        </button>
-      {/if}
-      <img src={current.previewUrl ?? current.thumbUrl} alt={current.originalFilename} class="max-h-full max-w-full object-contain" />
-      {#if viewerIndex < assets.length - 1}
-        <button class="absolute end-3 z-10 rounded-full bg-white/10 p-2 text-white hover:bg-white/20" onclick={() => viewerIndex++}>
-          <Icon icon={mdiChevronRight} size="2rem" />
-        </button>
-      {/if}
-    </div>
-  </div>
+  <PhotoViewer
+    {assets}
+    index={viewerIndex}
+    downloadUrl={(assetId) => api.assets.downloadUrl(eventId, assetId)}
+    loadDetail={(assetId) => api.assets.get(eventId, assetId)}
+    canDelete={canManage}
+    onClose={() => (viewerIndex = -1)}
+    onIndexChange={(index) => (viewerIndex = index)}
+    onDelete={deleteAsset}
+  />
 {/if}

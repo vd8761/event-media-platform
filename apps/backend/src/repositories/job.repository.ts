@@ -8,7 +8,7 @@
 import { getQueueToken } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import { ModuleRef, Reflector } from '@nestjs/core';
-import { JobsOptions, Queue, Worker } from 'bullmq';
+import { JobsOptions, MetricsTime, Queue, Worker } from 'bullmq';
 import { setTimeout } from 'node:timers/promises';
 import { JobConfig } from 'src/decorators';
 import { JobName, JobStatus, MetadataKey, QueueCleanType, QueueName } from 'src/enum';
@@ -101,6 +101,9 @@ export class JobRepository {
       const worker = new Worker(queueName, (job) => this.run(job as JobItem), {
         ...bull.config,
         concurrency: QUEUE_CONCURRENCY[queueName],
+        // per-minute completed/failed counters kept in Redis, so the API
+        // process can read throughput for queues it does not itself run
+        metrics: { maxDataPoints: MetricsTime.ONE_HOUR * 2 },
       });
       // surface queue-level problems — BullMQ is silent about these by default
       worker.on('failed', (job, error) => {
@@ -194,6 +197,38 @@ export class JobRepository {
       'waiting',
       'paused',
     ) as unknown as Promise<JobCounts>;
+  }
+
+  // Per-minute throughput from BullMQ's own metrics (Redis-backed, so the API
+  // process reports queues that only the media VM actually runs). `data` is
+  // newest-first, one bucket per minute.
+  async getQueueMetrics(name: QueueName, minutes = 15): Promise<{ completed: number[]; failed: number[] }> {
+    const queue = this.getQueue(name);
+    const [completed, failed] = await Promise.all([
+      queue.getMetrics('completed', 0, minutes - 1),
+      queue.getMetrics('failed', 0, minutes - 1),
+    ]);
+    return { completed: completed.data ?? [], failed: failed.data ?? [] };
+  }
+
+  // Currently-running jobs, for the "what is it working on right now" panel.
+  async getActiveJobs(name: QueueName, limit = 5): Promise<{ name: string; data: any; startedAt: number | null }[]> {
+    const jobs = await this.getQueue(name).getActive(0, limit - 1);
+    return jobs.map((job) => ({ name: job.name, data: job.data, startedAt: job.processedOn ?? null }));
+  }
+
+  async getFailedJobs(
+    name: QueueName,
+    limit = 20,
+  ): Promise<{ id: string; name: string; data: any; reason: string; failedAt: number | null }[]> {
+    const jobs = await this.getQueue(name).getFailed(0, limit - 1);
+    return jobs.map((job) => ({
+      id: String(job.id),
+      name: job.name,
+      data: job.data,
+      reason: job.failedReason ?? '',
+      failedAt: job.finishedOn ?? null,
+    }));
   }
 
   async queueAll(items: JobItem[]): Promise<void> {

@@ -23,6 +23,14 @@ export class CreateEventDto extends createZodDto(
   }),
 ) {}
 
+// force: also unassign existing clusters and re-detect already-processed
+// photos, instead of only filling in the ones detection never reached.
+export class ReprocessFacesDto extends createZodDto(
+  z.object({
+    force: z.boolean().optional(),
+  }),
+) {}
+
 export class UpdateEventDto extends createZodDto(
   z.object({
     name: z.string().min(1).max(200).optional(),

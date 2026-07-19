@@ -152,6 +152,10 @@ export class FaceService {
         this.logger.log(`Removed ${faceIdsToRemove.length} faces below detection threshold in asset ${assetId}`);
       }
 
+      // Record that detection ran regardless of the outcome — a photo with no
+      // faces must not stay indistinguishable from one that was never queued.
+      await this.assetRepository.setFacesDetected(assetId, faces.length);
+
       if (facesToAdd.length > 0) {
         this.logger.log(`Detected ${facesToAdd.length} new faces in asset ${assetId}`);
         const jobs: JobItem[] = facesToAdd.map((face) => ({

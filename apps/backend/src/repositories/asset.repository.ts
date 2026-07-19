@@ -19,6 +19,8 @@ export interface AssetListItem {
   width: number | null;
   height: number | null;
   thumbhash: Buffer | null;
+  facesDetectedAt: Date | null;
+  faceCount: number;
   previewKey: string | null;
   thumbKey: string | null;
 }
@@ -89,10 +91,26 @@ export class AssetRepository {
     return this.db.updateTable('asset').set({ status }).where('id', '=', assetId).execute().then(() => undefined);
   }
 
+  // Marks detection as having run (migration 0003) — set even when the photo
+  // contains no faces, which is exactly the case the timestamp disambiguates.
+  setFacesDetected(assetId: string, faceCount: number): Promise<void> {
+    return this.db
+      .updateTable('asset')
+      .set({ facesDetectedAt: new Date(), faceCount })
+      .where('id', '=', assetId)
+      .execute()
+      .then(() => undefined);
+  }
+
   // Cursor pagination on (capturedAt desc, id) — stable ordering (docs/plan/09 §3).
   async list(
     eventId: string,
-    opts: { limit: number; cursorCapturedAt?: Date | null; cursorId?: string },
+    opts: {
+      limit: number;
+      cursorCapturedAt?: Date | null;
+      cursorId?: string;
+      faceStatus?: 'pending' | 'found' | 'none';
+    },
   ): Promise<AssetListItem[]> {
     let query = this.db
       .selectFrom('asset')
@@ -112,6 +130,8 @@ export class AssetRepository {
         'asset.width',
         'asset.height',
         'asset.thumbhash',
+        'asset.facesDetectedAt',
+        'asset.faceCount',
         'preview.storageKey as previewKey',
         'thumb.storageKey as thumbKey',
       ])
@@ -120,6 +140,21 @@ export class AssetRepository {
       .orderBy('asset.capturedAt', 'desc')
       .orderBy('asset.id', 'desc')
       .limit(opts.limit);
+
+    switch (opts.faceStatus) {
+      case 'pending': {
+        query = query.where('asset.facesDetectedAt', 'is', null);
+        break;
+      }
+      case 'found': {
+        query = query.where('asset.facesDetectedAt', 'is not', null).where('asset.faceCount', '>', 0);
+        break;
+      }
+      case 'none': {
+        query = query.where('asset.facesDetectedAt', 'is not', null).where('asset.faceCount', '=', 0);
+        break;
+      }
+    }
 
     if (opts.cursorId) {
       // coalesce nulls so the (capturedAt, id) tuple compares deterministically
@@ -151,6 +186,23 @@ export class AssetRepository {
         }),
       )
       .execute();
+  }
+
+  // People visible in one photo, for the viewer's info panel.
+  getPeople(assetId: string) {
+    return this.db
+      .selectFrom('assetFace')
+      .innerJoin('person', 'person.id', 'assetFace.personId')
+      .select(['person.id', 'person.name', 'person.thumbnailKey'])
+      .where('assetFace.assetId', '=', assetId)
+      .where('assetFace.deletedAt', 'is', null)
+      .where('person.isHidden', '=', false)
+      .distinctOn('person.id')
+      .execute();
+  }
+
+  getExif(assetId: string) {
+    return this.db.selectFrom('assetExif').selectAll().where('assetId', '=', assetId).executeTakeFirst();
   }
 
   getFiles(assetId: string) {

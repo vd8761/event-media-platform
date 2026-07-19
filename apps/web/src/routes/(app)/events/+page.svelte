@@ -67,7 +67,15 @@
 
 {#if data.events.length === 0}
   <div class="rounded-2xl border border-dashed border-gray-300 p-16 text-center text-gray-500">
-    No events yet{creatableOrgs.length > 0 ? ' — create your first one.' : '.'}
+    {#if creatableOrgs.length > 0}
+      No events yet — create your first one.
+    {:else if data.me.isSuperAdmin}
+      <!-- events belong to an organization, so there is nothing to create into yet -->
+      No organizations exist yet.
+      <a href="/admin/organizations" class="text-immich-primary underline">Create one first</a>, then add an event to it.
+    {:else}
+      No events yet. Ask an organization owner for admin access to create one.
+    {/if}
   </div>
 {:else}
   <div class="grid grid-auto-fill-72 gap-4">

@@ -26,9 +26,17 @@ export class AssetJobDto extends createZodDto(
   }),
 ) {}
 
+// faceStatus filters by face-detection state (migration 0003):
+//   pending — detection has not run yet
+//   found   — detection ran and found at least one face
+//   none    — detection ran and the photo has no faces
+export const FACE_STATUS = ['pending', 'found', 'none'] as const;
+export type FaceStatusFilter = (typeof FACE_STATUS)[number];
+
 export class AssetListQueryDto extends createZodDto(
   z.object({
     limit: z.coerce.number().int().min(1).max(500).default(100),
     cursor: z.string().optional(),
+    faceStatus: z.enum(FACE_STATUS).optional(),
   }),
 ) {}

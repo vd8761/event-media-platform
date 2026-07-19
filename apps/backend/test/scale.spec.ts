@@ -194,7 +194,16 @@ describe('scale: 10k faces / 500 participants', () => {
       await db.insertInto('participant').values(participantRows.slice(start, start + BATCH)).execute();
     }
 
+    // Settle the write burst before any measurement. Straight after inserting
+    // 10k vectors the first queries are dominated by index maintenance and
+    // stale statistics — measured at ~2.4 s here, against ~25 ms once settled
+    // (same query, same data, plain client). Without this the latency test
+    // reports the seed aftermath rather than the query it names.
+    await sql`ANALYZE asset, asset_face, face_search, participant`.execute(db);
     await sql`SELECT vchordrq_prewarm('face_index')`.execute(db).catch(() => undefined);
+    for (let i = 0; i < 3; i++) {
+      await faceSearchRepository.searchFacesByEmbedding(eventId, embedding(1, 999), { maxDistance: 0.5 });
+    }
   }, 300_000);
 
   afterAll(async () => {
@@ -207,6 +216,7 @@ describe('scale: 10k faces / 500 participants', () => {
       maxDistance: 0.5,
     });
     const elapsed = Date.now() - started;
+
     console.log(`single KNN over 10k faces: ${elapsed} ms, ${results.length} hits`);
     expect(results.length).toBe(FACES_PER_IDENTITY);
     expect(elapsed).toBeLessThan(2000);

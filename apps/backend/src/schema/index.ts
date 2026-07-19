@@ -107,6 +107,10 @@ export interface AssetTable {
   capturedAt: Timestamp | null;
   createdAt: CreatedAt;
   deletedAt: Timestamp | null;
+  // NULL until face detection has run — distinguishes "not processed yet"
+  // from "processed, no faces found" (migration 0003).
+  facesDetectedAt: Timestamp | null;
+  faceCount: Generated<number>;
 }
 
 export interface AssetFileTable {

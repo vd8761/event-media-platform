@@ -88,6 +88,9 @@ export interface AssetItem {
   thumbhash: string | null;
   thumbUrl: string | null;
   previewUrl: string | null;
+  // null until face detection has run on this asset (migration 0003)
+  facesDetectedAt: string | null;
+  faceCount: number;
 }
 
 export interface PersonItem {
@@ -96,6 +99,80 @@ export interface PersonItem {
   isHidden: boolean;
   faceCount: number;
   thumbnailUrl: string | null;
+}
+
+export interface AssetDetail extends AssetItem {
+  fileSize: number;
+  mimeType: string;
+  checksum: string;
+  durationSeconds: number | null;
+  source: string;
+  exif: {
+    make: string | null;
+    model: string | null;
+    lens: string | null;
+    latitude: number | null;
+    longitude: number | null;
+  } | null;
+  people: { id: string; name: string; thumbnailUrl: string | null }[];
+}
+
+export interface ProcessingStatus {
+  assets: {
+    total: number;
+    processed: number;
+    failed: number;
+    pendingMedia: number;
+    images: number;
+    facesDetected: number;
+    pendingDetection: number;
+    withFaces: number;
+    withoutFaces: number;
+  };
+  faces: { total: number; assigned: number; unassigned: number; people: number };
+}
+
+export interface JobQueue {
+  name: string;
+  label: string;
+  description: string;
+  role: string;
+  concurrency: number;
+  isPaused: boolean;
+  counts: QueueCounts;
+  pending: number;
+  ratePerMinute: number;
+  etaSeconds: number | null;
+  history: number[];
+  jobs: string[];
+  active: { name: string; data: Record<string, unknown>; startedAt: number | null }[];
+}
+
+export interface SystemStatus {
+  machineLearning: {
+    device: 'cpu' | 'cuda';
+    deviceIsConfigured: boolean;
+    servers: { url: string; healthy: boolean; latencyMs: number | null }[];
+  };
+  host: {
+    platform: string;
+    arch: string;
+    cpuModel: string;
+    cpuCount: number;
+    cpuPercent: number;
+    memoryTotal: number;
+    memoryUsed: number;
+    uptimeSeconds: number;
+  };
+  process: {
+    uptimeSeconds: number;
+    rssBytes: number;
+    heapUsedBytes: number;
+    nodeVersion: string;
+    workers: string[];
+    excludedQueues: string[];
+  };
+  database: { vectorExtension: string; version: string };
 }
 
 export interface ParticipantItem {
@@ -181,6 +258,12 @@ export const api = {
       ),
     queues: () => get<Record<string, QueueCounts>>('/admin/queues'),
     queueAction: (name: string, action: string) => post<void>(`/admin/queues/${name}/${action}`),
+    jobs: () => get<{ queues: JobQueue[] }>('/admin/jobs'),
+    failedJobs: (name: string) =>
+      get<{ id: string; name: string; data: Record<string, unknown>; reason: string; failedAt: number | null }[]>(
+        `/admin/queues/${name}/failed`,
+      ),
+    system: () => get<SystemStatus>('/admin/system'),
   },
 
   // --- orgs & events ---
@@ -199,13 +282,19 @@ export const api = {
     get: (eventId: string) => get<EventItem>(`/events/${eventId}`),
     update: (eventId: string, body: Partial<EventItem>) => put<EventItem>(`/events/${eventId}`, body),
     remove: (eventId: string) => del<void>(`/events/${eventId}`),
+    processing: (eventId: string) => get<ProcessingStatus>(`/events/${eventId}/processing`),
+    reprocessFaces: (eventId: string, force = false) =>
+      post<{ queued: number }>(`/events/${eventId}/reprocess-faces`, { force }),
   },
 
   // --- assets ---
   assets: {
-    list: (eventId: string, cursor?: string, limit = 100) =>
+    get: (eventId: string, assetId: string) => get<AssetDetail>(`/events/${eventId}/assets/${assetId}`),
+    list: (eventId: string, cursor?: string, limit = 100, faceStatus?: 'pending' | 'found' | 'none') =>
       get<{ assets: AssetItem[]; nextCursor: string | null }>(
-        `/events/${eventId}/assets?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+        `/events/${eventId}/assets?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}${
+          faceStatus ? `&faceStatus=${faceStatus}` : ''
+        }`,
       ),
     bulkUploadCheck: (eventId: string, assets: { id: string; checksum: string }[]) =>
       post<{ results: { id: string; action: 'accept' | 'reject'; assetId?: string }[] }>(

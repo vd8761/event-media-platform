@@ -3,6 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
 import { AdminSignupDto, AuthDto, ChangePasswordDto, LoginDetails, LoginDto, LoginResponseDto } from 'src/dtos/auth.dto';
+import { OrgRole } from 'src/enum';
 import { Auth, Authenticated, GetLoginDetails } from 'src/middleware/auth.guard';
 import { ConfigRepository } from 'src/repositories/config.repository';
 import { OrganizationRepository } from 'src/repositories/organization.repository';
@@ -54,13 +55,29 @@ export class AuthController {
   @Authenticated()
   async me(@Auth() auth: AuthDto) {
     const user = auth.user!;
-    const memberships = await this.organizationRepository.listForUser(user.id);
+    // Super admins bypass membership in verifyOrgRole, so /me must report every
+    // org they can actually act on — otherwise the UI hides org-scoped actions
+    // (e.g. "New event") from the one account that is allowed to do everything.
+    const organizations = user.isSuperAdmin
+      ? (await this.organizationRepository.list()).map(({ id, name, slug }) => ({
+          id,
+          name,
+          slug,
+          role: OrgRole.Owner,
+        }))
+      : (await this.organizationRepository.listForUser(user.id)).map(({ id, name, slug, role }) => ({
+          id,
+          name,
+          slug,
+          role,
+        }));
+
     return {
       id: user.id,
       email: user.email,
       name: user.name,
       isSuperAdmin: user.isSuperAdmin,
-      organizations: memberships.map(({ id, name, slug, role }) => ({ id, name, slug, role })),
+      organizations,
     };
   }
 

@@ -78,6 +78,23 @@ export class MachineLearningRepository {
     }
   }
 
+  // Live probe for the admin system panel. Pings every configured URL and
+  // reports round-trip latency — the cached healthyMap is only refreshed on
+  // the media role, so the API process must measure it directly.
+  async getServerStatus(): Promise<{ url: string; healthy: boolean; latencyMs: number | null }[]> {
+    return Promise.all(
+      this.urls.map(async (url) => {
+        const started = Date.now();
+        try {
+          const response = await fetch(new URL('ping', url), { signal: AbortSignal.timeout(PING_TIMEOUT_MS) });
+          return { url, healthy: response.ok, latencyMs: Date.now() - started };
+        } catch {
+          return { url, healthy: false, latencyMs: null };
+        }
+      }),
+    );
+  }
+
   async detectFaces(imagePath: string, { modelName, minScore }: FaceDetectionOptions): Promise<DetectedFaces> {
     const request: FacialRecognitionRequest = {
       [ModelTask.FACIAL_RECOGNITION]: {

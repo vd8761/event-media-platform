@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthDto } from 'src/dtos/auth.dto';
-import { CreateEventDto, UpdateEventDto } from 'src/dtos/event.dto';
+import { CreateEventDto, ReprocessFacesDto, UpdateEventDto } from 'src/dtos/event.dto';
 import { OrgRole } from 'src/enum';
 import { Auth, Authenticated } from 'src/middleware/auth.guard';
 import { EventRepository } from 'src/repositories/event.repository';
@@ -39,6 +39,18 @@ export class EventController {
     // guard verified org membership via the event's org (docs/plan/09 §1)
     const orgId = await this.eventRepository.getOrgId(eventId);
     return this.eventService.get(orgId ?? '', eventId);
+  }
+
+  @Get('events/:eventId/processing')
+  @Authenticated({ orgRole: OrgRole.Member })
+  getProcessingStatus(@Param('eventId') eventId: string) {
+    return this.eventService.getProcessingStatus(eventId);
+  }
+
+  @Post('events/:eventId/reprocess-faces')
+  @Authenticated({ orgRole: OrgRole.Admin })
+  reprocessFaces(@Param('eventId') eventId: string, @Body() dto: ReprocessFacesDto) {
+    return this.eventService.reprocessFaces(eventId, dto.force ?? false);
   }
 
   @Put('events/:eventId')

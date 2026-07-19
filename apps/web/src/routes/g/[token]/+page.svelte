@@ -2,9 +2,9 @@
   import { page } from '$app/state';
   import { api, type GalleryResponse } from '$lib/api';
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
-  import { Button, Heading, IconButton, LoadingSpinner } from '@immich/ui';
-  import { mdiChevronLeft, mdiChevronRight, mdiClose, mdiDownload } from '@mdi/js';
-  import { Icon } from '@immich/ui';
+  import PhotoViewer from '$lib/components/PhotoViewer.svelte';
+  import { Button, Heading, LoadingSpinner } from '@immich/ui';
+  import { mdiDownload } from '@mdi/js';
   import { onDestroy, onMount } from 'svelte';
 
   const token = page.params.token!;
@@ -32,13 +32,6 @@
     setTimeout(() => (refreshedOnce = false), 60_000);
   }
 
-  function onKeydown(event: KeyboardEvent) {
-    if (viewerIndex < 0 || !gallery) return;
-    if (event.key === 'Escape') viewerIndex = -1;
-    if (event.key === 'ArrowRight' && viewerIndex < gallery.assets.length - 1) viewerIndex++;
-    if (event.key === 'ArrowLeft' && viewerIndex > 0) viewerIndex--;
-  }
-
   onMount(() => {
     void refresh();
     // the gallery is live — keep it fresh while processing continues
@@ -47,7 +40,6 @@
   onDestroy(() => pollTimer && clearInterval(pollTimer));
 </script>
 
-<svelte:window onkeydown={onKeydown} />
 <svelte:head><title>Your photos — EventLens</title></svelte:head>
 
 <div class="min-h-screen bg-immich-bg">
@@ -90,30 +82,11 @@
 </div>
 
 {#if viewerIndex >= 0 && gallery?.assets[viewerIndex]}
-  {@const current = gallery.assets[viewerIndex]}
-  <div class="fixed inset-0 z-50 flex flex-col bg-black/95">
-    <div class="flex items-center justify-end gap-1 p-4">
-      <IconButton
-        icon={mdiDownload}
-        aria-label="Download"
-        variant="ghost"
-        color="secondary"
-        href={api.public.galleryDownloadUrl(token, current.id)}
-      />
-      <IconButton icon={mdiClose} aria-label="Close" variant="ghost" color="secondary" onclick={() => (viewerIndex = -1)} />
-    </div>
-    <div class="relative flex flex-1 items-center justify-center overflow-hidden px-14 pb-6">
-      {#if viewerIndex > 0}
-        <button class="absolute start-3 z-10 rounded-full bg-white/10 p-2 text-white hover:bg-white/20" onclick={() => viewerIndex--}>
-          <Icon icon={mdiChevronLeft} size="2rem" />
-        </button>
-      {/if}
-      <img src={current.previewUrl ?? current.thumbUrl} alt="" class="max-h-full max-w-full object-contain" />
-      {#if viewerIndex < (gallery?.assets.length ?? 0) - 1}
-        <button class="absolute end-3 z-10 rounded-full bg-white/10 p-2 text-white hover:bg-white/20" onclick={() => viewerIndex++}>
-          <Icon icon={mdiChevronRight} size="2rem" />
-        </button>
-      {/if}
-    </div>
-  </div>
+  <PhotoViewer
+    assets={gallery.assets}
+    index={viewerIndex}
+    downloadUrl={(assetId) => api.public.galleryDownloadUrl(token, assetId)}
+    onClose={() => (viewerIndex = -1)}
+    onIndexChange={(index) => (viewerIndex = index)}
+  />
 {/if}

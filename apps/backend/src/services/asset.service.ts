@@ -23,6 +23,8 @@ export interface AssetListResponse {
     thumbhash: string | null;
     thumbUrl: string | null;
     previewUrl: string | null;
+    facesDetectedAt: Date | null;
+    faceCount: number;
   }[];
   nextCursor: string | null;
 }
@@ -36,13 +38,19 @@ export class AssetService {
     private storageRepository: StorageRepository,
   ) {}
 
-  async list(eventId: string, limit: number, cursor?: string): Promise<AssetListResponse> {
+  async list(
+    eventId: string,
+    limit: number,
+    cursor?: string,
+    faceStatus?: 'pending' | 'found' | 'none',
+  ): Promise<AssetListResponse> {
     const decoded = cursor ? this.decodeCursor(cursor) : undefined;
     // fetch one extra row to know whether another page exists
     const rows = await this.assetRepository.list(eventId, {
       limit: limit + 1,
       cursorCapturedAt: decoded?.capturedAt,
       cursorId: decoded?.id,
+      faceStatus,
     });
 
     const hasMore = rows.length > limit;
@@ -63,6 +71,8 @@ export class AssetService {
         previewUrl: row.previewKey
           ? await this.storageRepository.presignGet(row.previewKey, { expiresIn: LIST_URL_TTL })
           : null,
+        facesDetectedAt: row.facesDetectedAt,
+        faceCount: row.faceCount,
       })),
     );
 
@@ -78,12 +88,27 @@ export class AssetService {
     if (!asset) {
       throw new NotFoundException('Asset not found');
     }
-    const files = await this.assetRepository.getFiles(assetId);
+    const [files, exif, people] = await Promise.all([
+      this.assetRepository.getFiles(assetId),
+      this.assetRepository.getExif(assetId),
+      this.assetRepository.getPeople(assetId),
+    ]);
+
     return {
       ...asset,
       checksum: asset.checksum.toString('hex'),
       thumbhash: asset.thumbhash ? asset.thumbhash.toString('base64') : null,
       files: files.map((file) => ({ type: file.type, width: file.width, height: file.height, format: file.format })),
+      exif: exif ?? null,
+      people: await Promise.all(
+        people.map(async (person) => ({
+          id: person.id,
+          name: person.name,
+          thumbnailUrl: person.thumbnailKey
+            ? await this.storageRepository.presignGet(person.thumbnailKey, { expiresIn: LIST_URL_TTL })
+            : null,
+        })),
+      ),
     };
   }
 
@@ -136,7 +161,12 @@ export class AssetService {
         throw new BadRequestException(`Unknown job: ${dto.name}`);
       }
     }
-    await this.assetRepository.setStatus(assetId, AssetStatus.Stored);
+    // Only the derivative job rewinds the asset's status. Re-running face jobs
+    // must not flip a processed asset back to "stored", or the gallery shows a
+    // permanent "processing…" badge and never stops polling.
+    if (dto.name === 'thumbnails') {
+      await this.assetRepository.setStatus(assetId, AssetStatus.Stored);
+    }
     await this.jobRepository.queue(item);
   }
 

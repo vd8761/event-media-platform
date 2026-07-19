@@ -53,7 +53,7 @@ export class AssetController {
   @Get()
   @Authenticated({ orgRole: OrgRole.Member })
   list(@Param('eventId') eventId: string, @Query() query: AssetListQueryDto) {
-    return this.assetService.list(eventId, query.limit, query.cursor);
+    return this.assetService.list(eventId, query.limit, query.cursor, query.faceStatus);
   }
 
   @Get(':assetId')

@@ -52,6 +52,7 @@ export interface EnvData {
 
   machineLearning: {
     urls: string[];
+    device: 'cpu' | 'cuda';
   };
 
   oauth: {
@@ -172,6 +173,7 @@ const getEnv = (): EnvData => {
 
     machineLearning: {
       urls: (dto.MACHINE_LEARNING_URL || 'http://ml:3003').split(',').filter(Boolean),
+      device: dto.EL_ML_DEVICE || 'cpu',
     },
 
     oauth: {

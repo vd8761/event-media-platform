@@ -38,6 +38,9 @@ export const EnvSchema = z.object({
   R2_SECRET_ACCESS_KEY: z.string().optional(),
 
   MACHINE_LEARNING_URL: z.string().optional(),
+  // Reported (not detected) on the admin system panel — set to 'cuda' on the
+  // GPU VM so operators can see which sidecar build is deployed.
+  EL_ML_DEVICE: z.enum(['cpu', 'cuda']).optional(),
 
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),

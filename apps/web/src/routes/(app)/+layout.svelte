@@ -3,7 +3,14 @@
   import { page } from '$app/state';
   import { api } from '$lib/api';
   import { Icon } from '@immich/ui';
-  import { mdiCalendarMultiple, mdiCloudOutline, mdiDomain, mdiLogout, mdiViewDashboard } from '@mdi/js';
+  import {
+    mdiCalendarMultiple,
+    mdiCloudOutline,
+    mdiDomain,
+    mdiLogout,
+    mdiSync,
+    mdiViewDashboard,
+  } from '@mdi/js';
 
   let { data, children } = $props();
 
@@ -15,6 +22,7 @@
     { href: '/events', label: 'Events', icon: mdiCalendarMultiple, show: true },
     { href: '/settings/cloud-accounts', label: 'Cloud accounts', icon: mdiCloudOutline, show: isOrgAdmin },
     { href: '/admin/organizations', label: 'Organizations', icon: mdiDomain, show: data.me.isSuperAdmin },
+    { href: '/admin/jobs', label: 'Jobs', icon: mdiSync, show: data.me.isSuperAdmin },
     { href: '/admin/system', label: 'System', icon: mdiViewDashboard, show: data.me.isSuperAdmin },
   ]);
 
