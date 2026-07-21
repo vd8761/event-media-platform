@@ -4,6 +4,9 @@
   // navigation, zoom, a detail panel and a real file download.
   import type { AssetDetail } from '$lib/api';
   import FaceBoxes, { type FaceBox } from '$lib/components/FaceBoxes.svelte';
+  import Map from '$lib/components/Map.svelte';
+  import { slide } from 'svelte/transition';
+  import { cubicOut } from 'svelte/easing';
   import PhotoEditor from '$lib/components/PhotoEditor.svelte';
   import VideoViewer from '$lib/components/VideoViewer.svelte';
   import { ContextMenuButton, Icon, IconButton, MenuItemType, type MenuItems } from '@immich/ui';
@@ -120,6 +123,18 @@
   const isVideo = $derived(asset?.type === 'video');
 
   let showInfo = $state(false);
+
+  // The panel docks to the side on desktop and to the bottom on mobile, so it
+  // must slide along the matching axis — a sheet that slides in sideways reads
+  // as broken. Matches the md: breakpoint the panel's own classes use.
+  let wideViewport = $state(true);
+  const panelAxis = $derived<'x' | 'y'>(wideViewport ? 'x' : 'y');
+
+  // Honour prefers-reduced-motion by collapsing the slide to nothing. Svelte
+  // transitions do not consult the media query themselves, so a 0ms duration is
+  // the way to opt out without branching the markup.
+  let reducedMotion = $state(false);
+  const panelDuration = $derived(reducedMotion ? 0 : 220);
   let showFaces = $state(true);
   let imageLoaded = $state(false);
 
@@ -557,8 +572,22 @@
   onMount(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+
+    // 48rem = Tailwind's md, the breakpoint the panel's own classes switch on.
+    const wide = globalThis.matchMedia('(min-width: 48rem)');
+    wideViewport = wide.matches;
+    const onChange = (event: MediaQueryListEvent) => (wideViewport = event.matches);
+    wide.addEventListener('change', onChange);
+
+    const motion = globalThis.matchMedia('(prefers-reduced-motion: reduce)');
+    reducedMotion = motion.matches;
+    const onMotion = (event: MediaQueryListEvent) => (reducedMotion = event.matches);
+    motion.addEventListener('change', onMotion);
+
     return () => {
       document.body.style.overflow = previousOverflow;
+      wide.removeEventListener('change', onChange);
+      motion.removeEventListener('change', onMotion);
     };
   });
 
@@ -581,108 +610,6 @@
   <!-- `viewer` scopes the icon-colour override below: @immich/ui's secondary
        colour is near-black, which is invisible on this backdrop. -->
   <div class="viewer fixed inset-0 z-50 flex flex-col bg-black" role="dialog" aria-modal="true" aria-label="Photo viewer">
-    <header
-      class="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-2 bg-gradient-to-b from-black/80 via-black/40 to-transparent p-2 sm:p-3"
-    >
-      <div class="flex min-w-0 items-center gap-1 sm:gap-2">
-        <IconButton icon={mdiArrowLeft} aria-label="Back" variant="ghost" color="secondary" onclick={onClose} />
-        <div class="min-w-0">
-          <p class="md-title-small truncate text-white">{filename}</p>
-          <p class="md-label-medium truncate text-white/60">
-            {index + 1} of {assets.length}
-            {#if asset.capturedAt}
-              · {DateTime.fromISO(asset.capturedAt).toLocaleString(DateTime.DATETIME_MED)}
-            {/if}
-          </p>
-        </div>
-      </div>
-
-      <div class="flex shrink-0 items-center gap-0.5 sm:gap-1">
-        {#if faces.length > 0}
-          <IconButton
-            icon={mdiFaceRecognition}
-            aria-label={showFaces ? 'Hide faces' : 'Show faces'}
-            variant="ghost"
-            color={showFaces ? 'primary' : 'secondary'}
-            onclick={() => (showFaces = !showFaces)}
-          />
-        {/if}
-        <IconButton
-          icon={mdiMagnifyMinusOutline}
-          aria-label="Zoom out"
-          variant="ghost"
-          color="secondary"
-          disabled={zoom <= 1}
-          onclick={() => setZoom(zoom / 1.4)}
-        />
-        {#if zoomed}
-          <button
-            data-md-raw
-            class="md-label-medium min-w-11 rounded-full px-2 py-1 text-white/80 hover:bg-white/10"
-            title="Reset zoom"
-            onclick={resetZoom}
-          >
-            {Math.round(zoom * 100)}%
-          </button>
-        {/if}
-        <IconButton
-          icon={mdiMagnifyPlusOutline}
-          aria-label="Zoom in"
-          variant="ghost"
-          color="secondary"
-          disabled={zoom >= 6}
-          onclick={() => setZoom(zoom * 1.4)}
-        />
-        {#if canCopy}
-          <IconButton
-            icon={copyStatus === 'done' ? mdiCheck : mdiContentCopy}
-            aria-label={copyStatus === 'error' ? 'Copy failed' : copyStatus === 'done' ? 'Copied' : 'Copy image'}
-            variant="ghost"
-            color={copyStatus === 'error' ? 'danger' : copyStatus === 'done' ? 'success' : 'secondary'}
-            loading={copyStatus === 'copying'}
-            onclick={copyImage}
-          />
-        {/if}
-        {#if canDownload}
-          <IconButton
-            icon={mdiDownload}
-            aria-label="Download"
-            variant="ghost"
-            color="secondary"
-            loading={downloading}
-            onclick={download}
-          />
-        {/if}
-        <IconButton
-          icon={mdiInformationOutline}
-          aria-label="Info"
-          variant="ghost"
-          color={showInfo ? 'primary' : 'secondary'}
-          onclick={() => (showInfo = !showInfo)}
-        />
-        {#if canEdit && imageProxyUrl}
-          <IconButton
-            icon={mdiPencilOutline}
-            aria-label="Editor"
-            variant="ghost"
-            color="secondary"
-            onclick={() => (editing = true)}
-          />
-        {/if}
-        {#if canDelete}
-          <IconButton
-            icon={mdiDelete}
-            aria-label="Delete"
-            variant="ghost"
-            color="danger"
-            onclick={() => onDelete?.(asset.id)}
-          />
-        {/if}
-        <div class="dark">
-          <ContextMenuButton icon={mdiDotsVertical} aria-label="More" items={menuItems} />
-        </div>
-      </div>
-    </header>
 
     <div class="flex min-h-0 flex-1 flex-col md:flex-row">
       <!-- stage -->
@@ -691,6 +618,112 @@
         ontouchstart={onTouchStart}
         ontouchend={onTouchEnd}
       >
+        <!-- Lives inside the stage, not the outer container. As a full-width
+             absolute bar it stretched across the info panel too, so the close
+             button and the panel's own header sat on top of each other. Bounded
+             here, the panel is a true sibling column that nothing overlaps. -->
+      <header
+        class="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-2 bg-gradient-to-b from-black/80 via-black/40 to-transparent p-2 sm:p-3"
+      >
+        <div class="flex min-w-0 items-center gap-1 sm:gap-2">
+          <IconButton icon={mdiArrowLeft} aria-label="Back" variant="ghost" color="secondary" onclick={onClose} />
+          <div class="min-w-0">
+            <p class="md-title-small truncate text-white">{filename}</p>
+            <p class="md-label-medium truncate text-white/60">
+              {index + 1} of {assets.length}
+              {#if asset.capturedAt}
+                · {DateTime.fromISO(asset.capturedAt).toLocaleString(DateTime.DATETIME_MED)}
+              {/if}
+            </p>
+          </div>
+        </div>
+
+        <div class="flex shrink-0 items-center gap-0.5 sm:gap-1">
+          {#if faces.length > 0}
+            <IconButton
+              icon={mdiFaceRecognition}
+              aria-label={showFaces ? 'Hide faces' : 'Show faces'}
+              variant="ghost"
+              color={showFaces ? 'primary' : 'secondary'}
+              onclick={() => (showFaces = !showFaces)}
+            />
+          {/if}
+          <IconButton
+            icon={mdiMagnifyMinusOutline}
+            aria-label="Zoom out"
+            variant="ghost"
+            color="secondary"
+            disabled={zoom <= 1}
+            onclick={() => setZoom(zoom / 1.4)}
+          />
+          {#if zoomed}
+            <button
+              data-md-raw
+              class="md-label-medium min-w-11 rounded-full px-2 py-1 text-white/80 hover:bg-white/10"
+              title="Reset zoom"
+              onclick={resetZoom}
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+          {/if}
+          <IconButton
+            icon={mdiMagnifyPlusOutline}
+            aria-label="Zoom in"
+            variant="ghost"
+            color="secondary"
+            disabled={zoom >= 6}
+            onclick={() => setZoom(zoom * 1.4)}
+          />
+          {#if canCopy}
+            <IconButton
+              icon={copyStatus === 'done' ? mdiCheck : mdiContentCopy}
+              aria-label={copyStatus === 'error' ? 'Copy failed' : copyStatus === 'done' ? 'Copied' : 'Copy image'}
+              variant="ghost"
+              color={copyStatus === 'error' ? 'danger' : copyStatus === 'done' ? 'success' : 'secondary'}
+              loading={copyStatus === 'copying'}
+              onclick={copyImage}
+            />
+          {/if}
+          {#if canDownload}
+            <IconButton
+              icon={mdiDownload}
+              aria-label="Download"
+              variant="ghost"
+              color="secondary"
+              loading={downloading}
+              onclick={download}
+            />
+          {/if}
+          <IconButton
+            icon={mdiInformationOutline}
+            aria-label="Info"
+            variant="ghost"
+            color={showInfo ? 'primary' : 'secondary'}
+            onclick={() => (showInfo = !showInfo)}
+          />
+          {#if canEdit && imageProxyUrl}
+            <IconButton
+              icon={mdiPencilOutline}
+              aria-label="Editor"
+              variant="ghost"
+              color="secondary"
+              onclick={() => (editing = true)}
+            />
+          {/if}
+          {#if canDelete}
+            <IconButton
+              icon={mdiDelete}
+              aria-label="Delete"
+              variant="ghost"
+              color="danger"
+              onclick={() => onDelete?.(asset.id)}
+            />
+          {/if}
+          <div class="dark">
+            <ContextMenuButton icon={mdiDotsVertical} aria-label="More" items={menuItems} />
+          </div>
+        </div>
+      </header>
         {#if slideshowActive}
           <button
             type="button"
@@ -816,8 +849,12 @@
       <!-- Info panel — Immich's DetailPanel: a light side panel (bottom sheet
            on mobile) with a people row, then icon-led detail rows. -->
       {#if showInfo}
+        <!-- Slides in from the edge it is docked to: from the side on desktop,
+             up from the bottom on mobile where it is a sheet rather than a
+             rail. Collapses to an instant swap under prefers-reduced-motion. -->
         <aside
           id="info-panel"
+          transition:slide={{ duration: panelDuration, axis: panelAxis, easing: cubicOut }}
           class="immich-scrollbar bg-light text-immich-fg dark:text-immich-dark-fg max-h-[45vh] shrink-0 overflow-y-auto md:max-h-none md:w-90 md:border-s md:border-gray-200 dark:md:border-immich-dark-gray"
         >
           <section class="relative p-2">
@@ -921,7 +958,7 @@
               {#if latlng}
                 <div class="flex gap-4 py-2">
                   <Icon icon={mdiMapMarkerOutline} size="1.5rem" class="mt-0.5 shrink-0" />
-                  <div>
+                  <div class="min-w-0 flex-1">
                     <p>{latlng.lat}, {latlng.lng}</p>
                     <a
                       href="https://www.openstreetmap.org/?mlat={latlng.lat}&mlon={latlng.lng}#map=15/{latlng.lat}/{latlng.lng}"
@@ -931,6 +968,26 @@
                     >
                       Open in OpenStreetMap
                     </a>
+
+                    <!-- Rendered only while the panel is open, and keyed on the
+                         asset: MapLibre creates a WebGL context per instance,
+                         and leaving one alive per viewed photo exhausts the
+                         browser's context limit after a dozen or so. -->
+                    {#key asset.id}
+                      <div class="mt-2 h-40 overflow-hidden rounded-xl">
+                        <Map
+                          markers={[
+                            {
+                              id: asset.id,
+                              eventId: '',
+                              lat: latlng.lat,
+                              lon: latlng.lng,
+                              thumbUrl: asset.thumbUrl,
+                            },
+                          ]}
+                        />
+                      </div>
+                    {/key}
                   </div>
                 </div>
               {/if}
