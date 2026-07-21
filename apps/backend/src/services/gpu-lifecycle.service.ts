@@ -43,6 +43,10 @@ const WEBHOOK_TIMEOUT_MS = 20_000;
 // 30 minutes is well past any real job here and still caps the waste.
 const STUCK_ACTIVE_AFTER_MS = 30 * 60_000;
 
+// How often to ask the provider what the machine is really doing, when we
+// believe it is off.
+const PROVIDER_CHECK_INTERVAL_MS = 10 * 60_000;
+
 // Every queue the GPU box is responsible for.
 const GPU_QUEUES = Object.values(QueueName).filter((queue) => QUEUE_ROLES[queue] === WorkerRole.Media);
 
@@ -63,6 +67,8 @@ export interface GpuQueueSummary {
 
 @Injectable()
 export class GpuLifecycleService {
+  private lastProviderCheckAt = 0;
+
   constructor(
     private auditLogService: AuditLogService,
     private jarvisLabsRepository: JarvisLabsRepository,
@@ -340,6 +346,29 @@ export class GpuLifecycleService {
     const active = queues.reduce((sum, queue) => sum + queue.liveActive, 0);
     const now = Date.now();
 
+    // A box we believe is off, that the provider says is running, is the most
+    // expensive state this system can be in: the stop path below only fires for
+    // state === 'running', so nothing would ever shut it down and it bills until
+    // somebody reads the invoice. Adopting reality puts it back under the idle
+    // and start-timeout rules that already know how to stop it.
+    if (state.state === 'off') {
+      const actual = await this.getProviderState(config, state);
+      if (actual === 'running') {
+        const adoptedAt = new Date().toISOString();
+        await this.setState({ ...state, state: 'starting', since: adoptedAt, lastStartedAt: adoptedAt });
+        await this.auditLogService.record({
+          category: AuditCategory.Gpu,
+          action: 'gpu.state.reconciled',
+          level: AuditLevel.Warning,
+          message:
+            'The GPU instance is running but was recorded as off — adopting it so idle shutdown applies. ' +
+            'It would otherwise have billed indefinitely.',
+          detail: { machineId: state.machineId, workerOnline },
+        });
+        return JobStatus.Success;
+      }
+    }
+
     // Reconcile first: the heartbeat is the source of truth about whether the
     // box is actually up, not what we last wrote down.
     if (state.state === 'starting' && workerOnline) {
@@ -425,6 +454,48 @@ export class GpuLifecycleService {
   }
 
   // --- internals ---
+
+  // What the provider says the machine is doing, as opposed to what we last
+  // wrote down. Only JarvisLabs can answer: the webhook provider is fire and
+  // forget, with no status to query.
+  //
+  // Failures return null rather than throwing — this runs inside the sweep, and
+  // a CLI hiccup must not stop the sweep that shuts boxes down.
+  private async getProviderState(
+    config: GpuAutostartConfig,
+    state: GpuLifecycleState,
+  ): Promise<'running' | 'paused' | null> {
+    if (config.provider !== 'jarvislabs' || !this.jarvisLabsRepository.isConfigured()) {
+      return null;
+    }
+
+    // Throttled: the sweep runs every two minutes and a correctly-paused box is
+    // the normal resting state, so an unthrottled check would spawn the CLI
+    // hundreds of times a day to learn nothing. Ten minutes still bounds a
+    // runaway to minutes rather than an invoice. In-memory on purpose — losing
+    // it to a restart only means checking sooner.
+    const now = Date.now();
+    if (now - this.lastProviderCheckAt < PROVIDER_CHECK_INTERVAL_MS) {
+      return null;
+    }
+    this.lastProviderCheckAt = now;
+    const target = state.machineId || config.jarvislabsMachineId;
+    if (!target) {
+      return null;
+    }
+
+    try {
+      const instance = await this.jarvisLabsRepository.get(target);
+      const status = instance?.status?.toLowerCase();
+      if (!status) {
+        return null;
+      }
+      return status === 'running' ? 'running' : 'paused';
+    } catch (error) {
+      this.logger.warn(`Could not read the JarvisLabs instance state: ${error}`);
+      return null;
+    }
+  }
 
   // Two independent reasons to wake: enough work to be worth the boot, or work
   // that has waited too long. The second is what stops one straggling job from
@@ -526,6 +597,23 @@ export class GpuLifecycleService {
         return failed;
       }
       try {
+        // Resume refuses a machine that is already Running, which is not a
+        // failure — the state we wanted is the state we have. Treating it as an
+        // error left `lastError` on the panel and, worse, set the app back to
+        // `off` while the instance kept billing.
+        const current = await this.jarvisLabsRepository.get(target).catch(() => null);
+        if (current?.status && current.status.toLowerCase() === 'running') {
+          const adopted: GpuLifecycleState = { ...pendingState, machineId: current.machineId };
+          await this.setState(adopted);
+          await this.auditLogService.record({
+            category: AuditCategory.Gpu,
+            action: 'gpu.start.adopted',
+            message: `Instance ${current.machineId} was already running — adopted it instead of resuming`,
+            detail: { reason, machineId: current.machineId },
+          });
+          return adopted;
+        }
+
         const instance = await this.jarvisLabsRepository.resume(target, config.jarvislabsGpuType || undefined);
         // Persist the id the CLI handed back: resume can reassign it, and a
         // stale id would make the later pause a no-op against a dead machine
