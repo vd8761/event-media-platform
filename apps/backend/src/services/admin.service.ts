@@ -4,20 +4,21 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Kysely, sql } from 'kysely';
 import { InjectKysely } from 'nestjs-kysely';
 import { arch, cpus, freemem, platform, totalmem, uptime } from 'node:os';
-import { JobName, QueueCleanType, QueueName, SystemConfigKey, WorkerRole } from 'src/enum';
+import { AuditCategory, AuditLevel, JobName, QueueCleanType, QueueName, SystemConfigKey, WorkerRole } from 'src/enum';
 import {
   EventRetentionConfig,
   GpuAutostartConfig,
   SystemConfigRepository,
 } from 'src/repositories/system-config.repository';
 import { ConfigRepository } from 'src/repositories/config.repository';
+import { AuditLogService } from 'src/services/audit-log.service';
 import { JobRepository } from 'src/repositories/job.repository';
 import { MachineLearningRepository } from 'src/repositories/machine-learning.repository';
 import { sampleCpuPercent, TelemetryRepository } from 'src/repositories/telemetry.repository';
 import { DB } from 'src/schema';
 import { JobCounts, QUEUE_CONCURRENCY, QUEUE_ROLES } from 'src/types';
 
-export type QueueAction = 'pause' | 'resume' | 'clear-failed' | 'retry-failed' | 'empty';
+export type QueueAction = 'pause' | 'resume' | 'clear-failed' | 'retry-failed' | 'empty' | 'kill-active';
 
 // Operator-facing copy for the jobs page — mirrors Immich's job descriptions.
 const QUEUE_INFO: Record<QueueName, { label: string; description: string; jobs: JobName[] }> = {
@@ -87,6 +88,7 @@ const QUEUE_INFO: Record<QueueName, { label: string; description: string; jobs: 
 export class AdminService {
   constructor(
     @InjectKysely() private db: Kysely<DB>,
+    private auditLogService: AuditLogService,
     private configRepository: ConfigRepository,
     private jobRepository: JobRepository,
     private machineLearningRepository: MachineLearningRepository,
@@ -374,6 +376,17 @@ export class AdminService {
       }
       case 'empty': {
         await this.jobRepository.empty(queue);
+        break;
+      }
+      case 'kill-active': {
+        const killed = await this.jobRepository.killActive(queue);
+        await this.auditLogService.record({
+          category: AuditCategory.Job,
+          action: 'queue.kill-active',
+          level: AuditLevel.Warning,
+          message: `Terminated ${killed} active job(s) on ${queue}`,
+          detail: { queue, killed },
+        });
         break;
       }
       default: {

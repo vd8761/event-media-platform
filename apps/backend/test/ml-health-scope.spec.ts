@@ -12,6 +12,8 @@ const build = (workers: WorkerRole[], includedQueues: QueueName[] = []) => {
 
   const service = new AdminService(
     {} as never,
+    // audit — queue actions record themselves; irrelevant to ML scoping.
+    { record: async () => undefined } as never,
     {
       getEnv: () => ({
         workers,

@@ -16,7 +16,12 @@ export const getKyselyConfig = (connection: DatabaseConnectionParams): KyselyCon
       pool: new pg.Pool({
         connectionString: connection.url,
         ssl: connection.ssl,
-        max: 10,
+        // The media worker runs several queues at once and every job is mostly
+        // database round trips, so 10 connections were shared between 13
+        // concurrent jobs — work queued on the pool before it could reach the
+        // GPU. Tunable because the right number depends on the deployment:
+        // an API host serving requests wants fewer than a worker box does.
+        max: Number(process.env.DB_POOL_MAX) || 20,
       }),
     }),
     plugins: [new CamelCasePlugin()],

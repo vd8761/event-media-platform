@@ -7,6 +7,7 @@
     mdiAlertCircleOutline,
     mdiChevronDown,
     mdiDeleteSweep,
+    mdiSkullOutline,
     mdiMemory,
     mdiPause,
     mdiPlay,
@@ -51,6 +52,25 @@
   async function act(queue: string, action: string) {
     await api.admin.queueAction(queue, action);
     await refresh();
+  }
+
+  // Confirmed, because a job that really is running loses its work: BullMQ
+  // cannot abort a handler in another process, so this releases the record and
+  // the eventual result is discarded. For orphans — the case this exists for —
+  // there is no process left and nothing is lost.
+  async function killActive(queue: { name: string; label: string; counts: { active: number } }) {
+    const count = queue.counts.active;
+    const confirmed = confirm(
+      `Terminate ${count} active job${count === 1 ? '' : 's'} on "${queue.label}"?
+
+` +
+        'Anything genuinely still running loses its progress and will need to be re-queued. ' +
+        'Jobs left behind by a worker that stopped are simply released.',
+    );
+    if (!confirmed) {
+      return;
+    }
+    await act(queue.name, 'kill-active');
   }
 
   async function toggle(queue: JobQueue) {
@@ -268,6 +288,21 @@
             {:else}
               <Button size="small" variant="ghost" leadingIcon={mdiPause} onclick={() => act(queue.name, 'pause')}>
                 Pause
+              </Button>
+            {/if}
+            {#if queue.counts.active > 0}
+              <!-- Only offered when something is actually active. This is the
+                   escape hatch for jobs orphaned by a worker that vanished,
+                   which otherwise sit in `active` forever and hold the GPU box
+                   up — see the "stuck" marker on the GPU worker page. -->
+              <Button
+                size="small"
+                variant="ghost"
+                color="danger"
+                leadingIcon={mdiSkullOutline}
+                onclick={() => killActive(queue)}
+              >
+                Kill jobs
               </Button>
             {/if}
             {#if queue.counts.failed > 0}

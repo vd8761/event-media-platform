@@ -212,6 +212,40 @@ export class JobRepository {
     return this.getQueue(name).clean(0, 1000, type);
   }
 
+  // Force every active job in a queue to fail, releasing it.
+  //
+  // BullMQ cannot reach into another process and abort a handler mid-run, so
+  // this does not stop CPU work already happening — it clears the *records*.
+  // That is exactly what is needed for the case it exists for: entries orphaned
+  // by a worker that vanished, which no longer have a process behind them and
+  // which otherwise sit in `active` forever holding the GPU box up.
+  //
+  // A job that really is running will be moved to failed and, having lost its
+  // lock, its eventual completion is discarded. That is the trade the caller is
+  // making, which is why the UI confirms first.
+  async killActive(name: QueueName): Promise<number> {
+    const queue = this.getQueue(name);
+    const jobs = await queue.getJobs(['active']);
+    let killed = 0;
+
+    for (const job of jobs) {
+      try {
+        // A token is required to fail an active job; the one held by the real
+        // worker is unknown here, so force-move it through the raw state change.
+        await job.moveToFailed(new Error('Terminated by an administrator'), '0', true);
+        killed += 1;
+      } catch {
+        // Already gone, or finished between the read and the write. Either way
+        // the entry is no longer stuck, which is the outcome we wanted.
+        await job.remove().catch(() => undefined);
+        killed += 1;
+      }
+    }
+
+    this.logger.warn(`Terminated ${killed} active job(s) on ${name}`);
+    return killed;
+  }
+
   async retryFailed(name: QueueName) {
     const queue = this.getQueue(name);
     const jobs = await queue.getFailed();

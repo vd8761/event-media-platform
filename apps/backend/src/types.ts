@@ -73,10 +73,20 @@ export const QUEUE_ROLES: Record<QueueName, WorkerRole.Ingest | WorkerRole.Media
 // Per-queue consumer concurrency (docs/plan/05-job-orchestration.md §1).
 // facialRecognition MUST stay 1 — and globally single-consumer: every
 // additional GPU VM sets EL_QUEUES_EXCLUDE=facialRecognition (risk R1).
+// Sized against what each job actually spends its time on, not against cores.
+//
+// The GPU jobs are overwhelmingly I/O: a faceDetection job makes six database
+// round trips and an R2 download around a single inference call. Against a
+// database in another region that is roughly 400ms of waiting per ~100ms of
+// GPU, so at low concurrency the card sits idle between jobs. Overlapping more
+// jobs is what keeps it fed — the limit is the connection pool (DB_POOL_MAX),
+// not the GPU.
 export const QUEUE_CONCURRENCY: Record<QueueName, number> = {
-  [QueueName.MediaProcess]: 3,
+  [QueueName.MediaProcess]: 4,
+  // Serial on purpose: ffmpeg already saturates what it is given, and running
+  // several transcodes at once only makes each slower.
   [QueueName.VideoTranscode]: 1,
-  [QueueName.FaceDetection]: 2,
+  [QueueName.FaceDetection]: 6,
   [QueueName.FacialRecognition]: 1,
   [QueueName.SmartSearch]: 2,
   [QueueName.PersonThumbnail]: 2,
