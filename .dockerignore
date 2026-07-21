@@ -1,0 +1,40 @@
+# Keep the build context to what the Dockerfile actually needs.
+#
+# node_modules is the load-bearing entry. pnpm installs a symlink farm pointing
+# into a store outside the package, so copying a host's node_modules into the
+# image replaces the freshly installed modules with links that resolve to
+# nothing — `nest build` then fails with "Cannot find module @nestjs/cli".
+# It only bites when building from a working copy that has been installed in
+# (a fresh `git clone`, as on the GPU VM, has none), which makes it exactly the
+# kind of failure that shows up on someone else's machine and not in CI.
+node_modules/
+**/node_modules/
+
+# Build output — the image builds its own.
+dist/
+build/
+.svelte-kit/
+*.tsbuildinfo
+
+# Never let a local env file reach an image layer.
+.env
+.env.*
+!.env.example
+
+.git/
+.github/
+.idea/
+.vscode/
+.claude/
+
+# Runtime scratch, not inputs.
+staging/
+cache/
+coverage/
+**/.staging/
+**/.cache/
+
+# Not needed to build or run the server.
+docs/
+*.md
+!apps/backend/README.md

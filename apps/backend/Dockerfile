@@ -7,7 +7,9 @@
 FROM ghcr.io/immich-app/base-server-dev:202607132058 AS builder
 
 ENV CI=1
-RUN npm install --global pnpm@10
+# Pinned exactly, not `pnpm@10`: the floating tag silently moves across minors,
+# and `pnpm deploy` already changed its default behaviour once within v10.
+RUN npm install --global pnpm@10.34.5
 
 WORKDIR /usr/src/app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
@@ -15,8 +17,14 @@ COPY apps/backend/package.json apps/backend/
 RUN pnpm install --filter backend --frozen-lockfile
 
 COPY apps/backend apps/backend
+# `--legacy` on the deploy: from pnpm v10, `pnpm deploy` refuses to run unless
+# the workspace sets `inject-workspace-packages=true`, which exists to make
+# injected (hard-linked) workspace deps resolve correctly in the pruned output.
+# `backend` has no `workspace:` dependencies at all, so injection has nothing to
+# do here — `--legacy` restores the plain "prune to prod deps and copy" that
+# this stage was written against. Revisit if backend ever depends on packages/*.
 RUN pnpm --filter backend build && \
-    pnpm --filter backend --prod deploy /output/backend
+    pnpm --filter backend --prod deploy --legacy /output/backend
 
 FROM ghcr.io/immich-app/base-server-prod:202607132058
 
