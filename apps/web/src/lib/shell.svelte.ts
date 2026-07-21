@@ -4,13 +4,14 @@
 // Held in one store rather than loaded per-route so navigating between Photos,
 // People and an event does not re-fetch and re-flash the sidebar. Routes that
 // change this data (creating an event, picking a cover) call refresh().
-import { api, type OrgNotification, type OrgShell, type SidebarEvent } from '$lib/api';
+import { api, type OrgNotification, type OrgShell, type QuotaStatus, type SidebarEvent } from '$lib/api';
 
 class ShellStore {
   #orgId = $state<string | null>(null);
   #shell = $state<OrgShell | null>(null);
   #notifications = $state<OrgNotification[]>([]);
   #unread = $state(0);
+  #quota = $state<QuotaStatus | null>(null);
   #loading = $state(false);
 
   get orgId() {
@@ -18,6 +19,11 @@ class ShellStore {
   }
   get events(): SidebarEvent[] {
     return this.#shell?.events ?? [];
+  }
+  // Null until loaded, and stays null if the request fails — the sidebar then
+  // falls back to showing raw usage rather than an invented limit.
+  get quota(): QuotaStatus | null {
+    return this.#quota;
   }
   get storage() {
     return this.#shell?.storage ?? { bytes: 0, assets: 0 };
@@ -42,6 +48,7 @@ class ShellStore {
     this.#shell = null;
     this.#notifications = [];
     this.#unread = 0;
+    this.#quota = null;
     if (!orgId) {
       return;
     }
@@ -57,13 +64,15 @@ class ShellStore {
     try {
       // Notifications are best-effort — a failure there must not blank the
       // sidebar, which is the actual navigation.
-      const [shell, notifications] = await Promise.all([
+      const [shell, notifications, quota] = await Promise.all([
         api.orgs.shell(orgId),
         api.orgs.notifications(orgId).catch(() => ({ items: [], unread: 0 })),
+        api.orgs.quota(orgId).catch(() => null),
       ]);
       this.#shell = shell;
       this.#notifications = notifications.items;
       this.#unread = notifications.unread;
+      this.#quota = quota;
     } finally {
       this.#loading = false;
     }

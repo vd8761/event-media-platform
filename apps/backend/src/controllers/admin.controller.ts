@@ -1,6 +1,13 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { AuditFlushDto, AuditQueryDto, EventRetentionDto, GpuAutostartDto, GpuHoldDto } from 'src/dtos/admin.dto';
+import {
+  AuditFlushDto,
+  AuditQueryDto,
+  EventRetentionDto,
+  GpuAutostartDto,
+  GpuHoldDto,
+  UpdatePlanDto,
+} from 'src/dtos/admin.dto';
 import { AuthDto } from 'src/dtos/auth.dto';
 import { CreateOrgDto, UpdateOrgDto } from 'src/dtos/org.dto';
 import { Auth, Authenticated } from 'src/middleware/auth.guard';
@@ -48,6 +55,13 @@ export class AdminController {
   @Authenticated({ superAdmin: true })
   removeOrganization(@Param('orgId') orgId: string) {
     return this.organizationService.remove(orgId);
+  }
+
+  // Plan and, for Enterprise, the negotiated limits.
+  @Put('organizations/:orgId/plan')
+  @Authenticated({ superAdmin: true })
+  updatePlan(@Auth() auth: AuthDto, @Param('orgId') orgId: string, @Body() dto: UpdatePlanDto) {
+    return this.organizationService.updatePlan(orgId, dto, auth.user!.id);
   }
 
   @Get('stats')

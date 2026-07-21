@@ -83,6 +83,10 @@ export interface Organization {
   slug: string;
   status: string;
   createdAt: string;
+  plan: OrgPlan;
+  // Null means "use the plan's own limit". Only Enterprise may carry values.
+  storageLimitBytes: number | null;
+  eventLimit: number | null;
 }
 
 export interface EventItem {
@@ -515,6 +519,17 @@ export type SelfieProgress =
       matchedCount: number;
     };
 
+export type OrgPlan = 'starter' | 'pro' | 'enterprise';
+
+export interface QuotaStatus {
+  plan: OrgPlan;
+  storage: { usedBytes: number; limitBytes: number; remainingBytes: number };
+  events: { used: number; limit: number; remaining: number };
+  // A super admin has negotiated limits for this org, so the plan's own figures
+  // do not apply and the UI should not quote them.
+  hasCustomLimits: boolean;
+}
+
 export type AuditRetention = 'same_day' | 'thirty_days' | 'never';
 export type AuditLevel = 'info' | 'warning' | 'error';
 
@@ -580,6 +595,11 @@ export const api = {
     auditSummary: () => get<AuditSummary>('/admin/audit/summary'),
     flushAudit: (retention?: string) => post<{ removed: number }>('/admin/audit/flush', { retention }),
 
+    updatePlan: (
+      orgId: string,
+      body: { plan?: OrgPlan; storageLimitBytes?: number | null; eventLimit?: number | null },
+    ) => put<unknown>(`/admin/organizations/${orgId}/plan`, body),
+
     startGpu: () => post<GpuLifecycleState>('/admin/gpu/start', {}),
     // Pause the idle-shutdown timer for a window. Does not start the box.
     holdGpu: (minutes = 60) => post<GpuLifecycleState>('/admin/gpu/hold', { minutes }),
@@ -596,6 +616,7 @@ export const api = {
 
   // --- orgs & events ---
   orgs: {
+    quota: (orgId: string) => get<QuotaStatus>(`/orgs/${orgId}/quota`),
     // Everything the app shell needs in one call: sidebar events with covers
     // plus the storage footer.
     shell: (orgId: string) => get<OrgShell>(`/orgs/${orgId}/shell`),

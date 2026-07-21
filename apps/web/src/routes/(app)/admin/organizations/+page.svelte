@@ -16,6 +16,50 @@
   let ownerName = $state('');
   let ownerPassword = $state('');
 
+  // --- plan editing ---
+  const GB = 1024 * 1024 * 1024;
+  let planOrg = $state<Organization | null>(null);
+  let planValue = $state<'starter' | 'pro' | 'enterprise'>('starter');
+  let storageGb = $state('');
+  let eventLimit = $state('');
+  let planBusy = $state(false);
+  let planError = $state('');
+
+  function openPlan(org: Organization) {
+    planOrg = org;
+    planValue = org.plan;
+    // Shown in GB because that is how the plans are sold; converted back on
+    // save. Blank means "no override", which is not the same as zero.
+    storageGb = org.storageLimitBytes === null ? '' : String(org.storageLimitBytes / GB);
+    eventLimit = org.eventLimit === null ? '' : String(org.eventLimit);
+    planError = '';
+  }
+
+  async function savePlan() {
+    if (!planOrg) return;
+    planBusy = true;
+    planError = '';
+    try {
+      await api.admin.updatePlan(planOrg.id, {
+        plan: planValue,
+        // Only sent for Enterprise; the server clears them on any other plan
+        // anyway, but sending them would be a confusing 400.
+        ...(planValue === 'enterprise'
+          ? {
+              storageLimitBytes: storageGb.trim() === '' ? null : Math.round(Number(storageGb) * GB),
+              eventLimit: eventLimit.trim() === '' ? null : Number(eventLimit),
+            }
+          : {}),
+      });
+      planOrg = null;
+      await refresh();
+    } catch (e) {
+      planError = e instanceof ApiError ? e.message : 'Could not update the plan';
+    } finally {
+      planBusy = false;
+    }
+  }
+
   function slugify(value: string) {
     return value
       .toLowerCase()
@@ -77,6 +121,7 @@
         <th class="px-4 py-3 text-start font-medium">Name</th>
         <th class="px-4 py-3 text-start font-medium">Slug</th>
         <th class="px-4 py-3 text-start font-medium">Status</th>
+        <th class="px-4 py-3 text-start font-medium">Plan</th>
         <th class="px-4 py-3 text-start font-medium">Created</th>
         <th class="px-4 py-3 text-end font-medium">Actions</th>
       </tr>
@@ -89,8 +134,17 @@
           <td class="px-4 py-3">
             <Badge color={org.status === 'active' ? 'success' : 'danger'} size="small">{org.status}</Badge>
           </td>
+          <td class="px-4 py-3">
+            <span class="flex items-center gap-2">
+              <Badge color={org.plan === 'enterprise' ? 'primary' : 'secondary'} size="small">{org.plan}</Badge>
+              {#if org.storageLimitBytes !== null || org.eventLimit !== null}
+                <span class="text-xs text-gray-500">custom</span>
+              {/if}
+            </span>
+          </td>
           <td class="px-4 py-3 text-gray-500">{DateTime.fromISO(org.createdAt).toLocaleString(DateTime.DATE_MED)}</td>
           <td class="px-4 py-3 text-end">
+            <Button size="small" variant="ghost" onclick={() => openPlan(org)}>Plan</Button>
             <Button size="small" variant="ghost" color={org.status === 'active' ? 'danger' : 'primary'} onclick={() => toggleSuspend(org)}>
               {org.status === 'active' ? 'Suspend' : 'Reactivate'}
             </Button>
@@ -100,6 +154,49 @@
     </tbody>
   </table>
 </div>
+
+{#if planOrg}
+  <Modal title="Plan — {planOrg.name}" size="small" onClose={() => (planOrg = null)}>
+    <ModalBody>
+      {#if planError}<div class="mb-3"><Alert color="danger" title={planError} /></div>{/if}
+      <div class="flex flex-col gap-4">
+        <div>
+          <label for="plan" class="immich-form-label mb-1 block text-sm">Plan</label>
+          <select id="plan" bind:value={planValue} class="bg-subtle w-full rounded-xl px-3 py-2 text-sm">
+            <option value="starter">Starter — 2 GB, 1 event</option>
+            <option value="pro">Pro — 10 GB, 5 events</option>
+            <option value="enterprise">Enterprise — negotiated</option>
+          </select>
+        </div>
+
+        {#if planValue === 'enterprise'}
+          <!-- Only shown for Enterprise: Starter and Pro are fixed products,
+               and the server rejects overrides on them rather than silently
+               ignoring the fields. -->
+          <div>
+            <label for="storage-gb" class="immich-form-label mb-1 block text-sm">Storage (GB)</label>
+            <Input id="storage-gb" type="number" bind:value={storageGb} placeholder="50" />
+            <p class="mt-1 text-xs text-gray-400">Blank uses the Enterprise default of 50 GB.</p>
+          </div>
+          <div>
+            <label for="event-limit" class="immich-form-label mb-1 block text-sm">Events</label>
+            <Input id="event-limit" type="number" bind:value={eventLimit} placeholder="10" />
+            <p class="mt-1 text-xs text-gray-400">Blank uses the Enterprise default of 10.</p>
+          </div>
+        {:else}
+          <p class="text-sm text-gray-500">
+            Custom limits are Enterprise-only. Switching to Enterprise lets you set them; switching away clears
+            any that were set.
+          </p>
+        {/if}
+      </div>
+    </ModalBody>
+    <ModalFooter>
+      <Button variant="outline" onclick={() => (planOrg = null)}>Cancel</Button>
+      <Button disabled={planBusy} onclick={savePlan}>Save</Button>
+    </ModalFooter>
+  </Modal>
+{/if}
 
 {#if showCreate}
   <Modal title="New organization" size="small" onClose={() => (showCreate = false)}>

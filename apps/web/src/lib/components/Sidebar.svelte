@@ -40,6 +40,11 @@
 
   const hasOrg = $derived(me.organizations.length > 0);
   const isOrgAdmin = $derived(me.organizations.some((org) => org.role === 'owner' || org.role === 'admin'));
+
+  const quota = $derived(shellStore.quota);
+  const storagePercent = $derived(
+    quota && quota.storage.limitBytes > 0 ? (quota.storage.usedBytes / quota.storage.limitBytes) * 100 : 0,
+  );
 </script>
 
 <nav id="sidebar" aria-label="Primary" class="flex h-full flex-col gap-1 overflow-y-auto pt-4 pe-3">
@@ -108,14 +113,53 @@
   <div class="mt-2 flex flex-col gap-2 pb-4 ps-5">
     {#if hasOrg}
       <div class="me-1 rounded-lg bg-subtle p-4">
-        <div class="mb-1 flex items-center gap-2 text-gray-600">
-          <Icon icon={mdiHarddisk} size="1.125rem" />
-          <span class="text-sm font-medium">Storage</span>
+        <div class="mb-1 flex items-center justify-between gap-2 text-gray-600">
+          <span class="flex items-center gap-2">
+            <Icon icon={mdiHarddisk} size="1.125rem" />
+            <span class="text-sm font-medium">Storage</span>
+          </span>
+          {#if quota}
+            <!-- The plan is stated here rather than buried in settings: it is
+                 the thing that explains the limit sitting right beside it. -->
+            <span class="rounded-full bg-primary/15 px-2 py-0.5 text-[0.7rem] font-semibold uppercase text-primary">
+              {quota.plan}
+            </span>
+          {/if}
         </div>
-        <p class="text-sm text-gray-500">
-          <span class="text-primary font-semibold">{formatBytes(shellStore.storage.bytes)}</span> ·
-          {shellStore.storage.assets.toLocaleString()} photo{shellStore.storage.assets === 1 ? '' : 's'}
-        </p>
+
+        {#if quota}
+          <p class="text-sm text-gray-500">
+            <span class="text-primary font-semibold">{formatBytes(quota.storage.usedBytes)}</span>
+            of {formatBytes(quota.storage.limitBytes)}
+          </p>
+          <!-- Bar turns amber past 80% and red when full, so running out is
+               visible before it blocks an upload mid-batch. -->
+          <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-300/50">
+            <div
+              class="h-full rounded-full transition-all {storagePercent >= 100
+                ? 'bg-red-500'
+                : storagePercent >= 80
+                  ? 'bg-amber-500'
+                  : 'bg-primary'}"
+              style="width: {Math.min(100, storagePercent)}%"
+            ></div>
+          </div>
+          <p class="mt-2 text-xs text-gray-500">
+            {quota.events.used} of {quota.events.limit} event{quota.events.limit === 1 ? '' : 's'} used
+            {#if quota.events.remaining === 0}
+              <span class="text-amber-600">· limit reached</span>
+            {/if}
+          </p>
+          {#if quota.hasCustomLimits}
+            <p class="mt-1 text-[0.7rem] text-gray-400">Custom limits</p>
+          {/if}
+        {:else}
+          <!-- Quota unavailable: show real usage rather than an invented limit. -->
+          <p class="text-sm text-gray-500">
+            <span class="text-primary font-semibold">{formatBytes(shellStore.storage.bytes)}</span> ·
+            {shellStore.storage.assets.toLocaleString()} photo{shellStore.storage.assets === 1 ? '' : 's'}
+          </p>
+        {/if}
       </div>
     {/if}
 

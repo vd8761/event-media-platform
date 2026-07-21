@@ -18,6 +18,7 @@ import {
   FaceSourceType,
   ImportItemStatus,
   ImportJobStatus,
+  OrgPlan,
   OrgRole,
   OrgStatus,
   ParticipantStatus,
@@ -58,6 +59,11 @@ export interface OrganizationTable {
   name: string;
   slug: string;
   status: Generated<OrgStatus>;
+  plan: Generated<OrgPlan>;
+  // Enterprise-only overrides. Null means "use the plan's own limit", which is
+  // why they are nullable rather than seeded with the default.
+  storageLimitBytes: ColumnType<number | null, number | null, number | null>;
+  eventLimit: number | null;
   createdBy: string | null;
   createdAt: CreatedAt;
   updatedAt: GeneratedTimestamp;

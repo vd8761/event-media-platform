@@ -13,6 +13,7 @@ import { EventRepository } from 'src/repositories/event.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
 import { StorageRepository } from 'src/repositories/storage.repository';
+import { QuotaService } from 'src/services/quota.service';
 import { StorageKeys } from 'src/utils/storage-keys';
 import { isAssetChecksumConstraint } from 'src/utils/database';
 
@@ -28,6 +29,7 @@ export class UploadService {
     private eventRepository: EventRepository,
     private jobRepository: JobRepository,
     private logger: LoggingRepository,
+    private quotaService: QuotaService,
     private storageRepository: StorageRepository,
   ) {
     this.logger.setContext(UploadService.name);
@@ -45,6 +47,17 @@ export class UploadService {
     if (existing) {
       await this.discard(staged.stagingPath);
       return { id: existing.id, status: 'duplicate' };
+    }
+
+    // Quota is checked after dedupe on purpose: re-uploading a photo the org
+    // already has costs no new storage, so it must not be refused for being
+    // over the limit. Checked before the R2 put, so a rejected upload never
+    // leaves an orphaned object behind.
+    try {
+      await this.quotaService.assertStorageAvailable(event.orgId, staged.size);
+    } catch (error) {
+      await this.discard(staged.stagingPath);
+      throw error;
     }
 
     const assetId = crypto.randomUUID();

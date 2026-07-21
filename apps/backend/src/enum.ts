@@ -150,6 +150,31 @@ export enum ParticipantStatus {
   Matched = 'matched',
 }
 
+// --- subscription plans (migration 0013) ---
+
+export enum OrgPlan {
+  Starter = 'starter',
+  Pro = 'pro',
+  Enterprise = 'enterprise',
+}
+
+export interface PlanLimits {
+  storageBytes: number;
+  events: number;
+}
+
+const GB = 1024 * 1024 * 1024;
+
+// Starter and Pro are fixed for everyone on the plan. Enterprise ships a
+// baseline that a super admin overrides per customer — it is a floor, not a
+// promise, so a newly-created Enterprise org is usable before anyone has
+// negotiated anything.
+export const PLAN_LIMITS: Record<OrgPlan, PlanLimits> = {
+  [OrgPlan.Starter]: { storageBytes: 2 * GB, events: 1 },
+  [OrgPlan.Pro]: { storageBytes: 10 * GB, events: 5 },
+  [OrgPlan.Enterprise]: { storageBytes: 50 * GB, events: 10 },
+};
+
 // --- audit log (migration 0012) ---
 
 // How long a row survives. Chosen per-event at write time and then fixed:
@@ -173,6 +198,10 @@ export enum AuditLevel {
 }
 
 export enum AuditCategory {
+  // Plan changes and quota grants. Never-delete: "who put this org on
+  // Enterprise, and who granted them 500 GB" is a billing question that gets
+  // asked months later.
+  Subscription = 'subscription',
   // GPU box lifecycle: every start and stop with its reason, plus the
   // failures — a provider call that errored is exactly as interesting as one
   // that worked, and is the thing that costs money when missed.
@@ -193,6 +222,7 @@ export const AUDIT_DEFAULT_RETENTION: Record<AuditCategory, AuditRetention> = {
   [AuditCategory.Organization]: AuditRetention.Never,
   [AuditCategory.Event]: AuditRetention.Never,
   [AuditCategory.Retention]: AuditRetention.Never,
+  [AuditCategory.Subscription]: AuditRetention.Never,
   [AuditCategory.Gpu]: AuditRetention.ThirtyDays,
   [AuditCategory.Job]: AuditRetention.ThirtyDays,
   [AuditCategory.System]: AuditRetention.SameDay,

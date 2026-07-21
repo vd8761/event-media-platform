@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Kysely } from 'kysely';
 import { InjectKysely } from 'nestjs-kysely';
-import { OrgRole, OrgStatus } from 'src/enum';
+import { OrgPlan, OrgRole, OrgStatus } from 'src/enum';
 import { DB, NewOrganization, Organization, OrganizationUser } from 'src/schema';
 
 export interface OrgMember {
@@ -60,7 +60,17 @@ export class OrganizationRepository {
       .execute();
   }
 
-  update(id: string, dto: Partial<{ name: string; slug: string; status: OrgStatus }>): Promise<Organization> {
+  update(
+    id: string,
+    dto: Partial<{
+      name: string;
+      slug: string;
+      status: OrgStatus;
+      plan: OrgPlan;
+      storageLimitBytes: number | null;
+      eventLimit: number | null;
+    }>,
+  ): Promise<Organization> {
     return this.db
       .updateTable('organization')
       .set({ ...dto, updatedAt: new Date() })

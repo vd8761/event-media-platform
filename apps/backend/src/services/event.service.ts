@@ -4,6 +4,7 @@ import { InjectKysely } from 'nestjs-kysely';
 import { CreateEventDto, UpdateEventDto } from 'src/dtos/event.dto';
 import { AssetStatus, AssetType, JobName } from 'src/enum';
 import { EventRepository } from 'src/repositories/event.repository';
+import { QuotaService } from 'src/services/quota.service';
 import { JobRepository } from 'src/repositories/job.repository';
 import { DB, EventRow } from 'src/schema';
 import { StorageKeys } from 'src/utils/storage-keys';
@@ -14,6 +15,7 @@ export class EventService {
     @InjectKysely() private db: Kysely<DB>,
     private eventRepository: EventRepository,
     private jobRepository: JobRepository,
+    private quotaService: QuotaService,
   ) {}
 
   listByOrg(orgId: string): Promise<EventRow[]> {
@@ -29,6 +31,10 @@ export class EventService {
   }
 
   async create(orgId: string, dto: CreateEventDto): Promise<EventRow> {
+    // Before the slug check, so an org at its limit gets told about the limit
+    // rather than being sent to fix a slug it will not be allowed to use.
+    await this.quotaService.assertEventAvailable(orgId);
+
     if (await this.eventRepository.getBySlug(dto.slug)) {
       throw new BadRequestException('Slug already in use');
     }

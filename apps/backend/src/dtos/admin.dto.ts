@@ -1,5 +1,5 @@
 import { createZodDto } from 'nestjs-zod';
-import { AuditCategory, AuditLevel, AuditRetention } from 'src/enum';
+import { AuditCategory, AuditLevel, AuditRetention, OrgPlan } from 'src/enum';
 import { z } from 'zod';
 
 // Log tab query. `after` drives the live tail — the page sends the newest
@@ -14,6 +14,17 @@ export class AuditQueryDto extends createZodDto(
     // here fails the whole process, not just this route.
     before: z.string().datetime().optional(),
     after: z.string().datetime().optional(),
+  }),
+) {}
+
+// Super-admin plan control. Overrides are nullable rather than optional-only:
+// sending null is how a custom limit is explicitly removed, which is different
+// from omitting the field (leave as-is).
+export class UpdatePlanDto extends createZodDto(
+  z.object({
+    plan: z.nativeEnum(OrgPlan).optional(),
+    storageLimitBytes: z.coerce.number().int().min(0).nullable().optional(),
+    eventLimit: z.coerce.number().int().min(0).nullable().optional(),
   }),
 ) {}
 

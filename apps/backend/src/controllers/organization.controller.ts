@@ -5,6 +5,7 @@ import { Authenticated } from 'src/middleware/auth.guard';
 import { OrgRole } from 'src/enum';
 import { OrganizationService } from 'src/services/organization.service';
 import { PersonService } from 'src/services/person.service';
+import { QuotaService } from 'src/services/quota.service';
 import { AssetService } from 'src/services/asset.service';
 
 @ApiTags('Organizations')
@@ -14,6 +15,7 @@ export class OrganizationController {
     private organizationService: OrganizationService,
     private personService: PersonService,
     private assetService: AssetService,
+    private quotaService: QuotaService,
   ) {}
 
   @Get(':orgId')
@@ -32,6 +34,13 @@ export class OrganizationController {
 
   // Account stats. Member-level: usage figures are org-wide context, not
   // owner-only settings.
+  // Plan, limits and current consumption. Member-level: everyone in the org
+  // sees the same quota bar, and it is their own data.
+  @Get(':orgId/quota')
+  getQuota(@Param('orgId') orgId: string) {
+    return this.quotaService.getStatus(orgId);
+  }
+
   @Get(':orgId/usage')
   @Authenticated({ orgRole: OrgRole.Member })
   getUsage(@Param('orgId') orgId: string) {

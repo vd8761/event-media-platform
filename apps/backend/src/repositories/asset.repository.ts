@@ -203,6 +203,21 @@ export class AssetRepository {
   // Per-event usage breakdown for the account-stats page. One grouped query
   // rather than a query per event; events with no assets still appear (left
   // join) so a freshly created event is not silently missing from the list.
+  // Total live bytes for an organisation. Separate from getOrgUsageByEvent so
+  // the quota check on every upload is one aggregate rather than a per-event
+  // breakdown it would only sum up again.
+  async getOrgStorageBytes(orgId: string): Promise<number> {
+    const row = await this.db
+      .selectFrom('asset')
+      .innerJoin('event', 'event.id', 'asset.eventId')
+      .where('event.orgId', '=', orgId)
+      .where('asset.deletedAt', 'is', null)
+      .select(sql<string>`coalesce(sum(asset.file_size), 0)`.as('bytes'))
+      .executeTakeFirst();
+
+    return Number(row?.bytes ?? 0);
+  }
+
   async getOrgUsageByEvent(orgId: string): Promise<
     { eventId: string; eventName: string; photos: number; videos: number; bytes: number }[]
   > {

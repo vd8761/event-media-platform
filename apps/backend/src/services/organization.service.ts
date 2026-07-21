@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AddMemberDto, CreateOrgDto, UpdateMemberDto, UpdateOrgDto } from 'src/dtos/org.dto';
-import { JobName, OrgRole } from 'src/enum';
+import { AuditCategory, AuditLevel, JobName, OrgPlan, OrgRole } from 'src/enum';
 import { AssetRepository } from 'src/repositories/asset.repository';
 import { CryptoRepository } from 'src/repositories/crypto.repository';
+import { AuditLogService } from 'src/services/audit-log.service';
 import { EventRepository } from 'src/repositories/event.repository';
 import { StorageRepository } from 'src/repositories/storage.repository';
 import { JobRepository } from 'src/repositories/job.repository';
@@ -29,6 +30,7 @@ const EXPIRY_WARNING_DAYS = 14;
 export class OrganizationService {
   constructor(
     private assetRepository: AssetRepository,
+    private auditLogService: AuditLogService,
     private cryptoRepository: CryptoRepository,
     private eventRepository: EventRepository,
     private storageRepository: StorageRepository,
@@ -187,6 +189,63 @@ export class OrganizationService {
       }
     }
     return this.organizationRepository.update(orgId, dto);
+  }
+
+  // Super-admin only. Two rules live here rather than in the DTO because both
+  // depend on the resulting plan, not just the submitted fields.
+  //
+  //  1. Only Enterprise may carry custom limits. Starter and Pro are fixed
+  //     products; letting an admin quietly grant a Starter org 500 GB makes the
+  //     plan meaningless and the billing unexplainable.
+  //  2. Downgrading off Enterprise clears the overrides, so an org cannot keep
+  //     negotiated limits it is no longer paying for.
+  async updatePlan(
+    orgId: string,
+    dto: { plan?: OrgPlan; storageLimitBytes?: number | null; eventLimit?: number | null },
+    actorId: string,
+  ): Promise<Organization> {
+    const before = await this.get(orgId);
+    const plan = dto.plan ?? before.plan;
+
+    const wantsOverride = dto.storageLimitBytes != null || dto.eventLimit != null;
+    if (wantsOverride && plan !== OrgPlan.Enterprise) {
+      throw new BadRequestException(
+        'Custom storage and event limits are only available on the Enterprise plan. Change the plan first.',
+      );
+    }
+
+    const patch: Parameters<OrganizationRepository['update']>[1] = { plan };
+    if (plan === OrgPlan.Enterprise) {
+      if (dto.storageLimitBytes !== undefined) {
+        patch.storageLimitBytes = dto.storageLimitBytes;
+      }
+      if (dto.eventLimit !== undefined) {
+        patch.eventLimit = dto.eventLimit;
+      }
+    } else {
+      patch.storageLimitBytes = null;
+      patch.eventLimit = null;
+    }
+
+    const after = await this.organizationRepository.update(orgId, patch);
+
+    await this.auditLogService.record({
+      category: AuditCategory.Subscription,
+      action: before.plan === after.plan ? 'subscription.limits.changed' : 'subscription.plan.changed',
+      level: AuditLevel.Warning,
+      message:
+        before.plan === after.plan
+          ? `Custom limits changed for "${after.name}" (${after.plan})`
+          : `"${after.name}" moved from ${before.plan} to ${after.plan}`,
+      detail: {
+        from: { plan: before.plan, storageLimitBytes: before.storageLimitBytes, eventLimit: before.eventLimit },
+        to: { plan: after.plan, storageLimitBytes: after.storageLimitBytes, eventLimit: after.eventLimit },
+      },
+      orgId,
+      userId: actorId,
+    });
+
+    return after;
   }
 
   async remove(orgId: string): Promise<void> {

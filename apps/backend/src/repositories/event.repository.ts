@@ -8,6 +8,18 @@ import { DB, EventRow, EventTable, EventUpdate, NewEvent } from 'src/schema';
 
 @Injectable()
 export class EventRepository {
+  // Live events only — a deleted event must not keep consuming a plan slot.
+  async countForOrg(orgId: string): Promise<number> {
+    const row = await this.db
+      .selectFrom('event')
+      .where('orgId', '=', orgId)
+      .where('deletedAt', 'is', null)
+      .select(sql<string>`count(*)`.as('count'))
+      .executeTakeFirst();
+
+    return Number(row?.count ?? 0);
+  }
+
   constructor(@InjectKysely() private db: Kysely<DB>) {}
 
   create(event: NewEvent): Promise<EventRow> {

@@ -14,6 +14,7 @@ import * as m0009 from 'src/migrations/0009-smart-search';
 import * as m0010 from 'src/migrations/0010-support-ticket';
 import * as m0011 from 'src/migrations/0011-multi-selfie';
 import * as m0012 from 'src/migrations/0012-audit-log';
+import * as m0013 from 'src/migrations/0013-organization-plan';
 
 const migrations: Record<string, Migration> = {
   '0001-init': m0001,
@@ -28,6 +29,7 @@ const migrations: Record<string, Migration> = {
   '0010-support-ticket': m0010,
   '0011-multi-selfie': m0011,
   '0012-audit-log': m0012,
+  '0013-organization-plan': m0013,
 };
 
 export class StaticMigrationProvider implements MigrationProvider {
