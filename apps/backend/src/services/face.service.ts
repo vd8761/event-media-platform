@@ -287,6 +287,22 @@ export class FaceService {
     if (personId) {
       this.logger.debug(`Assigning face ${faceId} to person ${personId}`);
       await this.faceRepository.reassignFaces({ faceIds: [faceId], newPersonId: personId });
+
+      // If a guest has already claimed any face in this cluster, carry their
+      // name onto it now. Matching runs before clustering, so naming from the
+      // participant side alone left the organiser looking at an unnamed face
+      // that the guest had in fact already identified.
+      //
+      // Best-effort by design: this is a label on top of clustering that
+      // already succeeded, and failing the job here would strand the face.
+      try {
+        const named = await this.personRepository.nameFromParticipants(face.eventId, personId);
+        if (named) {
+          this.logger.log(`Named person ${personId} "${named}" from a participant claim`);
+        }
+      } catch (error) {
+        this.logger.warn(`Could not name person ${personId} from participants: ${error}`);
+      }
     }
 
     return JobStatus.Success;

@@ -128,17 +128,27 @@ export class ParticipantService {
     }
   }
 
-  // Name the cluster a matched participant belongs to.
+  // Name the clusters a matched participant belongs to, so the organiser sees
+  // "Priya" instead of a face they would have to identify by hand.
   //
-  // Deliberately conservative in three ways:
+  // Every cluster the participant's faces touch is offered a name, not just the
+  // dominant one: one person's faces routinely land in several clusters, and
+  // naming only the biggest left the rest unnamed for the same guest. The
+  // safety is in `nameFromParticipants` deciding per cluster, from that
+  // cluster's own faces — a stranger who matched loosely on one face does not
+  // out-vote the participant who claimed the other twenty.
   //
-  //  - Only the dominant cluster is named. Clustering is imperfect, so one
-  //    person's faces can land in several clusters; spraying the name across
-  //    all of them would label strangers who happened to match loosely.
-  //  - An already-named person is left alone. The organiser may have named
-  //    them by hand, and a guest's self-reported name must not overwrite that.
+  // Two rules hold regardless:
+  //
+  //  - An already-named person is left alone. The organiser may have named them
+  //    by hand, and a guest's self-reported name must not overwrite that.
   //  - Failures are swallowed. This is a nicety on top of matching; it must
   //    never fail a selfie that otherwise worked.
+  //
+  // This is the after-clustering half. The before-clustering half lives in
+  // FaceService.handleRecognizeFaces, which runs the same query as each face
+  // joins a cluster — matching and clustering race, so both directions are
+  // needed for the name to appear whichever finishes first.
   private async nameMatchedPerson(participant: Participant, faceIds: string[]): Promise<void> {
     if (!participant.name || faceIds.length === 0) {
       return;
@@ -146,13 +156,15 @@ export class ParticipantService {
 
     try {
       const clusters = await this.personRepository.getPersonsForFaces(faceIds);
-      const dominant = clusters[0];
-      if (!dominant || dominant.name) {
-        return;
+      for (const cluster of clusters) {
+        if (cluster.name) {
+          continue;
+        }
+        const named = await this.personRepository.nameFromParticipants(participant.eventId, cluster.personId);
+        if (named) {
+          this.logger.log(`Named person ${cluster.personId} "${named}" from participant ${participant.id}`);
+        }
       }
-
-      await this.personRepository.update(participant.eventId, dominant.personId, { name: participant.name });
-      this.logger.log(`Named person ${dominant.personId} "${participant.name}" from participant ${participant.id}`);
     } catch (error) {
       this.logger.warn(`Could not name the person for participant ${participant.id}: ${error}`);
     }

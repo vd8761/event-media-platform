@@ -116,6 +116,56 @@ export class PersonRepository {
     return rows.map((row) => ({ personId: row.personId, name: row.name, faces: Number(row.faces) }));
   }
 
+  // Give an unnamed cluster the name of the participant who claimed most of its
+  // faces, and return that name (null when nothing was named).
+  //
+  // The reverse direction of getPersonsForFaces: that one starts from a
+  // participant's matched faces and asks which cluster they are, which only
+  // works if the faces were already clustered when the selfie was matched.
+  // Clustering usually runs *after* matching, so that lookup found nothing and
+  // was never retried — the organiser kept seeing an unnamed face. This runs
+  // from the cluster side, at the moment a face joins it, so the ordering of
+  // the two pipelines stops mattering.
+  //
+  // Deliberately one statement: the `name = ''` predicate and the write happen
+  // together, so a concurrent rename by the organiser is never clobbered — one
+  // of the two updates simply matches nothing. `''` (the column default) is the
+  // only value treated as unnamed; a name set by anyone wins permanently.
+  async nameFromParticipants(eventId: string, personId: string): Promise<string | null> {
+    const winner = this.db
+      .selectFrom('assetFace')
+      .innerJoin('participantMatch', 'participantMatch.viaFaceId', 'assetFace.id')
+      .innerJoin('participant', 'participant.id', 'participantMatch.participantId')
+      .where('assetFace.personId', '=', personId)
+      .where('participant.deletedAt', 'is', null)
+      .where('participant.name', 'is not', null)
+      .where('participant.name', '!=', '')
+      // One column only — this is used as a scalar subquery below.
+      .select('participant.name as name')
+      .groupBy('participant.name')
+      // Most claimed faces wins. Two participants can match one cluster when a
+      // face is genuinely ambiguous; the better-supported claim is the safer
+      // guess, and the organiser can always correct it.
+      .orderBy(sql`count(*)`, 'desc')
+      // Ties would otherwise resolve at random and flip between runs.
+      .orderBy('participant.name', 'asc')
+      .limit(1);
+
+    const updated = await this.db
+      .updateTable('person')
+      .set({ name: sql<string>`(${winner})`, updatedAt: new Date() })
+      .where('id', '=', personId)
+      .where('eventId', '=', eventId)
+      .where('name', '=', '')
+      // Without this the update writes NULL into a NOT NULL column when no
+      // participant has claimed the cluster yet.
+      .where(sql`(${winner})`, 'is not', null)
+      .returning('name')
+      .executeTakeFirst();
+
+    return updated?.name ?? null;
+  }
+
   update(eventId: string, personId: string, dto: Partial<{ name: string; isHidden: boolean; thumbnailKey: string; faceAssetFaceId: string | null }>): Promise<Person> {
     return this.db
       .updateTable('person')
