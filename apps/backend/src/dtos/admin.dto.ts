@@ -1,5 +1,30 @@
 import { createZodDto } from 'nestjs-zod';
+import { AuditCategory, AuditLevel, AuditRetention } from 'src/enum';
 import { z } from 'zod';
+
+// Log tab query. `after` drives the live tail — the page sends the newest
+// timestamp it holds, so a poll only ever transfers rows it has not seen.
+export class AuditQueryDto extends createZodDto(
+  z.object({
+    category: z.nativeEnum(AuditCategory).optional(),
+    level: z.nativeEnum(AuditLevel).optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+    // ISO strings, not z.coerce.date(): a ZodDate has no JSON Schema
+    // representation, and the Swagger document is built at boot — so a date
+    // here fails the whole process, not just this route.
+    before: z.string().datetime().optional(),
+    after: z.string().datetime().optional(),
+  }),
+) {}
+
+// Omitting `retention` clears the whole table, never-delete rows included.
+// That is the only way those are ever removed, so it is deliberately explicit
+// rather than a default.
+export class AuditFlushDto extends createZodDto(
+  z.object({
+    retention: z.nativeEnum(AuditRetention).optional(),
+  }),
+) {}
 
 // Super-admin settings for waking the GPU box. All optional — the panel PATCHes
 // whichever fields changed, and unset values fall back to GPU_AUTOSTART_DEFAULTS.

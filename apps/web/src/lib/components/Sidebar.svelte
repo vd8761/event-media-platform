@@ -15,6 +15,7 @@
     mdiDomain,
     mdiExpansionCard,
     mdiLifebuoy,
+    mdiTextBoxOutline,
     mdiHarddisk,
     mdiImageAlbum,
     mdiImageMultiple,
@@ -96,6 +97,7 @@
       <NavbarItem title="Organizations" href="/admin/organizations" icon={mdiDomain} />
       <NavbarItem title="Jobs" href="/admin/jobs" icon={mdiCogOutline} activeIcon={mdiCog} />
       <NavbarItem title="GPU worker" href="/admin/gpu" icon={mdiExpansionCard} />
+      <NavbarItem title="Logs" href="/admin/logs" icon={mdiTextBoxOutline} />
       <NavbarItem title="Support" href="/admin/support" icon={mdiLifebuoy} />
       <NavbarItem title="System" href="/admin/system" icon={mdiViewDashboard} />
     {/if}

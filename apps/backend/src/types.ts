@@ -32,6 +32,7 @@ export interface JobPayloads {
   [JobName.EventExpirySweep]: Record<string, never>;
   [JobName.EventPurgeSweep]: Record<string, never>;
   [JobName.GpuLifecycleSweep]: Record<string, never>;
+  [JobName.AuditRetentionSweep]: Record<string, never>;
 }
 
 export type JobItem = {

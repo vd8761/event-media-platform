@@ -4,6 +4,9 @@
 // Immich so ported face SQL runs unchanged.
 import { ColumnType, Generated, Insertable, Selectable, Updateable } from 'kysely';
 import {
+    AuditCategory,
+  AuditLevel,
+  AuditRetention,
   AssetFileType,
   AssetSource,
   AssetStatus,
@@ -327,6 +330,21 @@ export interface SupportTicketTable {
   resolvedAt: Timestamp | null;
 }
 
+export interface AuditLogTable {
+  id: Generated<string>;
+  createdAt: CreatedAt;
+  category: AuditCategory;
+  // Fixed at write time, never derived from the category later — see the
+  // migration for why reclassifying must not rewrite history.
+  retention: AuditRetention;
+  level: AuditLevel;
+  action: string;
+  message: string;
+  detail: unknown | null;
+  orgId: string | null;
+  userId: string | null;
+}
+
 export interface SystemConfigTable {
   key: string;
   value: unknown;
@@ -353,6 +371,7 @@ export interface DB {
   importItem: ImportItemTable;
   emailLog: EmailLogTable;
   supportTicket: SupportTicketTable;
+  auditLog: AuditLogTable;
   systemConfig: SystemConfigTable;
 }
 
@@ -365,6 +384,8 @@ export type Asset = Selectable<AssetTable>;
 export type AssetFace = Selectable<AssetFaceTable>;
 export type Person = Selectable<PersonTable>;
 export type Participant = Selectable<ParticipantTable>;
+export type AuditLog = Selectable<AuditLogTable>;
+export type NewAuditLog = Insertable<AuditLogTable>;
 
 export type NewUser = Insertable<UserTable>;
 export type NewOrganization = Insertable<OrganizationTable>;

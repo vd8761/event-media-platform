@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { EventRetentionDto, GpuAutostartDto } from 'src/dtos/admin.dto';
+import { AuditFlushDto, AuditQueryDto, EventRetentionDto, GpuAutostartDto } from 'src/dtos/admin.dto';
 import { AuthDto } from 'src/dtos/auth.dto';
 import { CreateOrgDto, UpdateOrgDto } from 'src/dtos/org.dto';
 import { Auth, Authenticated } from 'src/middleware/auth.guard';
 import { AdminService, QueueAction } from 'src/services/admin.service';
+import { AuditLogService } from 'src/services/audit-log.service';
 import { GpuLifecycleService } from 'src/services/gpu-lifecycle.service';
 import { OrganizationService } from 'src/services/organization.service';
 
@@ -13,6 +14,7 @@ import { OrganizationService } from 'src/services/organization.service';
 export class AdminController {
   constructor(
     private adminService: AdminService,
+    private auditLogService: AuditLogService,
     private gpuLifecycleService: GpuLifecycleService,
     private organizationService: OrganizationService,
   ) {}
@@ -118,6 +120,28 @@ export class AdminController {
   @Authenticated({ superAdmin: true })
   updateRetention(@Body() dto: EventRetentionDto) {
     return this.adminService.updateEventRetention(dto);
+  }
+
+  // Newest first. The page polls with `after` set to the newest row it holds,
+  // which is what makes the live tail cheap — an idle poll returns [].
+  @Get('audit')
+  @Authenticated({ superAdmin: true })
+  listAudit(@Query() query: AuditQueryDto) {
+    return this.auditLogService.list(query);
+  }
+
+  @Get('audit/summary')
+  @Authenticated({ superAdmin: true })
+  auditSummary() {
+    return this.auditLogService.getSummary();
+  }
+
+  @Post('audit/flush')
+  @Authenticated({ superAdmin: true })
+  flushAudit(@Auth() auth: AuthDto, @Body() dto: AuditFlushDto) {
+    return this.auditLogService
+      .flush(dto.retention, auth.user!.id)
+      .then((removed) => ({ removed }));
   }
 
   @Post('queues/:name/:action')

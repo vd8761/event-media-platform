@@ -1,5 +1,6 @@
 import { AdminService } from 'src/services/admin.service';
 import { AssetService } from 'src/services/asset.service';
+import { AuditLogService } from 'src/services/audit-log.service';
 import { AuthService } from 'src/services/auth.service';
 import { CipherService } from 'src/services/cipher.service';
 import { CleanupService } from 'src/services/cleanup.service';
@@ -24,6 +25,7 @@ import { UploadService } from 'src/services/upload.service';
 export const services = [
   AdminService,
   AssetService,
+  AuditLogService,
   AuthService,
   CipherService,
   CleanupService,

@@ -509,6 +509,28 @@ export type SelfieProgress =
       matchedCount: number;
     };
 
+export type AuditRetention = 'same_day' | 'thirty_days' | 'never';
+export type AuditLevel = 'info' | 'warning' | 'error';
+
+export interface AuditEntry {
+  id: string;
+  createdAt: string;
+  category: string;
+  retention: AuditRetention;
+  level: AuditLevel;
+  action: string;
+  message: string;
+  detail: unknown | null;
+  orgId: string | null;
+  userId: string | null;
+}
+
+export interface AuditSummary {
+  total: number;
+  oldest: string | null;
+  byRetention: Record<AuditRetention, number>;
+}
+
 export const api = {
   login: (email: string, password: string) =>
     post<{ accessToken: string; userId: string }>('/auth/login', { email, password }),
@@ -537,6 +559,21 @@ export const api = {
     updateGpuConfig: (body: Partial<GpuAutostartConfig>) => put<GpuAutostartConfig>('/admin/gpu/config', body),
     // Read-only provider check (runs `jl get` for JarvisLabs).
     testGpuProvider: () => post<{ ok: boolean; detail: string }>('/admin/gpu/test', {}),
+    // Audit trail (migration 0012). `after` is the live tail: send the newest
+    // timestamp already on screen and an idle poll comes back empty.
+    audit: (query: { category?: string; level?: string; limit?: number; before?: string; after?: string } = {}) => {
+      const search = new URLSearchParams();
+      for (const [key, value] of Object.entries(query)) {
+        if (value !== undefined && value !== '') {
+          search.set(key, String(value));
+        }
+      }
+      const qs = search.toString();
+      return get<AuditEntry[]>(`/admin/audit${qs ? `?${qs}` : ''}`);
+    },
+    auditSummary: () => get<AuditSummary>('/admin/audit/summary'),
+    flushAudit: (retention?: string) => post<{ removed: number }>('/admin/audit/flush', { retention }),
+
     startGpu: () => post<GpuLifecycleState>('/admin/gpu/start', {}),
     stopGpu: () => post<GpuLifecycleState>('/admin/gpu/stop', {}),
     // --- support inbox ---

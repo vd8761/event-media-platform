@@ -1,4 +1,5 @@
 import { AssetRepository } from 'src/repositories/asset.repository';
+import { AuditLogRepository } from 'src/repositories/audit-log.repository';
 import { CloudAccountRepository } from 'src/repositories/cloud-account.repository';
 import { CloudProviderRegistry } from 'src/repositories/cloud-providers';
 import { ConfigRepository } from 'src/repositories/config.repository';
@@ -29,6 +30,7 @@ import { UserRepository } from 'src/repositories/user.repository';
 
 export const repositories = [
   AssetRepository,
+  AuditLogRepository,
   CloudAccountRepository,
   CloudProviderRegistry,
   ConfigRepository,

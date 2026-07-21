@@ -53,6 +53,7 @@ export enum JobName {
   EventExpirySweep = 'EventExpirySweep',
   EventPurgeSweep = 'EventPurgeSweep',
   GpuLifecycleSweep = 'GpuLifecycleSweep',
+  AuditRetentionSweep = 'AuditRetentionSweep',
 }
 
 export enum JobStatus {
@@ -148,6 +149,54 @@ export enum ParticipantStatus {
   PendingMatch = 'pending_match',
   Matched = 'matched',
 }
+
+// --- audit log (migration 0012) ---
+
+// How long a row survives. Chosen per-event at write time and then fixed:
+// reclassifying a category later must not retroactively delete or preserve
+// history written under the old policy.
+export enum AuditRetention {
+  // Verbose traces worth having while something is happening and worthless
+  // tomorrow. Swept at the end of the day they were written.
+  SameDay = 'same_day',
+  // Operational history: what the GPU did and why, failures, deliveries.
+  ThirtyDays = 'thirty_days',
+  // Anything a real audit needs to answer months later — who deleted what,
+  // who was granted access. Only a deliberate manual flush removes these.
+  Never = 'never',
+}
+
+export enum AuditLevel {
+  Info = 'info',
+  Warning = 'warning',
+  Error = 'error',
+}
+
+export enum AuditCategory {
+  // GPU box lifecycle: every start and stop with its reason, plus the
+  // failures — a provider call that errored is exactly as interesting as one
+  // that worked, and is the thing that costs money when missed.
+  Gpu = 'gpu',
+  Job = 'job',
+  Auth = 'auth',
+  Organization = 'organization',
+  Event = 'event',
+  Retention = 'retention',
+  System = 'system',
+}
+
+// Default class per category. Security-relevant categories are kept forever
+// because "when was this deleted, and by whom" is the question an audit log
+// exists to answer, and a 30-day window answers it only by luck.
+export const AUDIT_DEFAULT_RETENTION: Record<AuditCategory, AuditRetention> = {
+  [AuditCategory.Auth]: AuditRetention.Never,
+  [AuditCategory.Organization]: AuditRetention.Never,
+  [AuditCategory.Event]: AuditRetention.Never,
+  [AuditCategory.Retention]: AuditRetention.Never,
+  [AuditCategory.Gpu]: AuditRetention.ThirtyDays,
+  [AuditCategory.Job]: AuditRetention.ThirtyDays,
+  [AuditCategory.System]: AuditRetention.SameDay,
+};
 
 export enum CloudProvider {
   GDrive = 'gdrive',

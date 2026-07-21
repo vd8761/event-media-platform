@@ -144,6 +144,7 @@ export class JobRepository {
       { queue: QueueName.Background, name: JobName.EventExpirySweep, pattern: '5 * * * *' },
       // Daily, well after the expiry sweep so the grace period is honoured.
       { queue: QueueName.StorageCleanup, name: JobName.EventPurgeSweep, pattern: '0 5 * * *' },
+      { queue: QueueName.StorageCleanup, name: JobName.AuditRetentionSweep, pattern: '10 4 * * *' },
       // Frequent: this is what decides whether the GPU box wakes or shuts down,
       // so its resolution is the worst-case delay on both.
       { queue: QueueName.Background, name: JobName.GpuLifecycleSweep, pattern: '*/2 * * * *' },

@@ -14,8 +14,9 @@
 // down. The expensive resource fails closed.
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { OnJob } from 'src/decorators';
-import { JobName, JobStatus, QueueName } from 'src/enum';
+import { AuditCategory, AuditLevel, JobName, JobStatus, QueueName } from 'src/enum';
 import { JarvisLabsRepository } from 'src/repositories/jarvislabs.repository';
+import { AuditLogService } from 'src/services/audit-log.service';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
 import {
@@ -44,6 +45,7 @@ export interface GpuQueueSummary {
 @Injectable()
 export class GpuLifecycleService {
   constructor(
+    private auditLogService: AuditLogService,
     private jarvisLabsRepository: JarvisLabsRepository,
     private jobRepository: JobRepository,
     private logger: LoggingRepository,
@@ -240,6 +242,12 @@ export class GpuLifecycleService {
     if (state.state === 'starting' && workerOnline) {
       await this.setState({ ...state, state: 'running', since: new Date().toISOString(), lastError: null });
       this.logger.log('GPU worker reported in — now running');
+      await this.auditLogService.record({
+        category: AuditCategory.Gpu,
+        action: 'gpu.running',
+        message: 'GPU worker reported in — now running',
+        detail: { pending, bootSeconds: Math.round((now - new Date(state.since).getTime()) / 1000) },
+      });
       return JobStatus.Success;
     }
 
@@ -247,6 +255,13 @@ export class GpuLifecycleService {
       // Never showed up. Stop it rather than leaving a half-booted box we
       // believe is coming — a machine we are not using is a machine we pay for.
       this.logger.error(`GPU worker did not report in within ${config.startTimeoutMinutes}m — stopping`);
+      await this.auditLogService.record({
+        category: AuditCategory.Gpu,
+        action: 'gpu.start.timeout',
+        level: AuditLevel.Error,
+        message: `GPU worker never reported in within ${config.startTimeoutMinutes}m — stopping it rather than paying for a box we cannot use`,
+        detail: { startTimeoutMinutes: config.startTimeoutMinutes, machineId: state.machineId },
+      });
       await this.stop(config, 'start timed out');
       return JobStatus.Success;
     }
@@ -260,6 +275,13 @@ export class GpuLifecycleService {
         lastStoppedAt: new Date().toISOString(),
       });
       this.logger.warn('GPU worker stopped reporting — marking off');
+      await this.auditLogService.record({
+        category: AuditCategory.Gpu,
+        action: 'gpu.vanished',
+        level: AuditLevel.Warning,
+        message: 'GPU worker stopped reporting — it crashed, or shut itself down via the heartbeat',
+        detail: { pending, ranSince: state.since, machineId: state.machineId },
+      });
       return JobStatus.Success;
     }
 
@@ -269,6 +291,12 @@ export class GpuLifecycleService {
         state: 'off',
         since: new Date().toISOString(),
         lastStoppedAt: new Date().toISOString(),
+      });
+      await this.auditLogService.record({
+        category: AuditCategory.Gpu,
+        action: 'gpu.off',
+        message: 'GPU worker confirmed off — billing has stopped',
+        detail: { machineId: state.machineId },
       });
       return JobStatus.Success;
     }
@@ -346,6 +374,12 @@ export class GpuLifecycleService {
         const holdUntil = new Date(Date.now() + config.idleShutdownMinutes * 60_000).toISOString();
         const next = { ...state, holdUntil };
         await this.setState(next);
+        await this.auditLogService.record({
+          category: AuditCategory.Gpu,
+          action: 'gpu.hold',
+          message: `GPU already ${state.state}; held up for another ${config.idleShutdownMinutes} minutes (${reason})`,
+          detail: { reason, state: state.state, holdUntil },
+        });
         return next;
       }
       return state;
@@ -365,12 +399,25 @@ export class GpuLifecycleService {
     await this.setState(pendingState);
 
     this.logger.log(`Starting GPU worker (${reason})`);
+    await this.auditLogService.record({
+      category: AuditCategory.Gpu,
+      action: 'gpu.start',
+      message: `Starting GPU worker — ${reason}`,
+      detail: { reason, manual, provider: config.provider, previousState: state.state },
+    });
 
     if (config.provider === 'jarvislabs') {
       const target = state.machineId || config.jarvislabsMachineId;
       if (!target) {
         const failed: GpuLifecycleState = { ...pendingState, state: 'off', lastError: 'no JarvisLabs instance id' };
         await this.setState(failed);
+        await this.auditLogService.record({
+          category: AuditCategory.Gpu,
+          action: 'gpu.start.failed',
+          level: AuditLevel.Error,
+          message: 'GPU start aborted — no JarvisLabs instance id configured',
+          detail: { reason },
+        });
         return failed;
       }
       try {
@@ -380,12 +427,30 @@ export class GpuLifecycleService {
         // while the real one keeps billing.
         const started: GpuLifecycleState = { ...pendingState, machineId: instance.machineId };
         await this.setState(started);
+        if (instance.machineId !== target) {
+          // Worth its own entry: a reassigned id is the failure mode that
+          // leaves the real machine running and billing under a stale id.
+          await this.auditLogService.record({
+            category: AuditCategory.Gpu,
+            action: 'gpu.instance.reassigned',
+            level: AuditLevel.Warning,
+            message: `JarvisLabs resume reassigned the instance: ${target} -> ${instance.machineId}`,
+            detail: { from: target, to: instance.machineId },
+          });
+        }
         return started;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const failed: GpuLifecycleState = { ...pendingState, state: 'off', lastError: message };
         await this.setState(failed);
         this.logger.error(`JarvisLabs resume failed: ${message}`);
+        await this.auditLogService.recordError({
+          category: AuditCategory.Gpu,
+          action: 'gpu.start.failed',
+          message: `JarvisLabs resume failed — ${message}`,
+          detail: { reason, machineId: target },
+          error,
+        });
         return failed;
       }
     }
@@ -395,6 +460,13 @@ export class GpuLifecycleService {
       const failed: GpuLifecycleState = { ...pendingState, state: 'off', lastError: error };
       await this.setState(failed);
       this.logger.error(`GPU start webhook failed: ${error}`);
+      await this.auditLogService.record({
+        category: AuditCategory.Gpu,
+        action: 'gpu.start.failed',
+        level: AuditLevel.Error,
+        message: `GPU start webhook failed — ${error}`,
+        detail: { reason, error },
+      });
       return failed;
     }
 
@@ -408,12 +480,25 @@ export class GpuLifecycleService {
     await this.setState(stopping);
 
     this.logger.log(`Stopping GPU worker (${reason})`);
+    await this.auditLogService.record({
+      category: AuditCategory.Gpu,
+      action: 'gpu.stop',
+      message: `Stopping GPU worker — ${reason}`,
+      detail: { reason, provider: config.provider, ranSince: state.since, machineId: state.machineId },
+    });
 
     if (config.provider === 'jarvislabs') {
       const target = state.machineId || config.jarvislabsMachineId;
       if (!target) {
         const failed: GpuLifecycleState = { ...stopping, lastError: 'no JarvisLabs instance id' };
         await this.setState(failed);
+        await this.auditLogService.record({
+          category: AuditCategory.Gpu,
+          action: 'gpu.stop.failed',
+          level: AuditLevel.Error,
+          message: 'GPU stop aborted — no JarvisLabs instance id; the box may still be billing',
+          detail: { reason },
+        });
         return failed;
       }
       try {
@@ -429,6 +514,13 @@ export class GpuLifecycleService {
         const failed: GpuLifecycleState = { ...stopping, lastError: message };
         await this.setState(failed);
         this.logger.error(`JarvisLabs pause failed: ${message} — the worker should still self-stop via heartbeat`);
+        await this.auditLogService.recordError({
+          category: AuditCategory.Gpu,
+          action: 'gpu.stop.failed',
+          message: `JarvisLabs pause failed — ${message}. Falling back to the box's own heartbeat shutdown.`,
+          detail: { reason, machineId: target },
+          error,
+        });
         return failed;
       }
     }
@@ -441,6 +533,13 @@ export class GpuLifecycleService {
       const failed: GpuLifecycleState = { ...stopping, lastError: error };
       await this.setState(failed);
       this.logger.error(`GPU stop webhook failed: ${error} — the worker should still self-stop via heartbeat`);
+      await this.auditLogService.record({
+        category: AuditCategory.Gpu,
+        action: 'gpu.stop.failed',
+        level: AuditLevel.Error,
+        message: `GPU stop webhook failed — ${error}. Falling back to the box's own heartbeat shutdown.`,
+        detail: { reason, error },
+      });
       return failed;
     }
 
