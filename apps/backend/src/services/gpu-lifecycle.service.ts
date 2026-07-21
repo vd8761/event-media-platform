@@ -30,6 +30,19 @@ import { WorkerRole } from 'src/enum';
 
 const WEBHOOK_TIMEOUT_MS = 20_000;
 
+// Past this, an "active" job is treated as orphaned rather than running.
+//
+// The box is paused mid-batch by design, and a worker that disappears leaves its
+// job sitting in Redis' active list with nobody to finish or fail it. Those
+// entries never clear on their own while the box is down, and `active > 0` is
+// what keeps the box alive — so a single orphan pins a GPU up indefinitely,
+// which is exactly the runaway bill the autoshutdown exists to prevent.
+//
+// Generous on purpose: a long video transcode legitimately holds a job for many
+// minutes, and cutting the box off mid-encode would waste the work already done.
+// 30 minutes is well past any real job here and still caps the waste.
+const STUCK_ACTIVE_AFTER_MS = 30 * 60_000;
+
 // Every queue the GPU box is responsible for.
 const GPU_QUEUES = Object.values(QueueName).filter((queue) => QUEUE_ROLES[queue] === WorkerRole.Media);
 
@@ -40,6 +53,12 @@ export interface GpuQueueSummary {
   delayed: number;
   failed: number;
   oldestWaitingAgeSeconds: number | null;
+  // How long the longest-running active job has been active. Null when nothing
+  // is active. Anything past STUCK_ACTIVE_AFTER_MS is orphaned, not working.
+  oldestActiveAgeSeconds: number | null;
+  // Active jobs young enough to plausibly still be running. This, not `active`,
+  // is what may hold the box up.
+  liveActive: number;
 }
 
 @Injectable()
@@ -65,7 +84,7 @@ export class GpuLifecycleService {
       this.isWorkerOnline(),
     ]);
 
-    const pending = queues.reduce((sum, queue) => sum + queue.waiting + queue.active + queue.delayed, 0);
+    const pending = queues.reduce((sum, queue) => sum + queue.waiting + queue.liveActive + queue.delayed, 0);
     const oldestAges = queues
       .map((queue) => queue.oldestWaitingAgeSeconds)
       .filter((age): age is number => age !== null);
@@ -131,10 +150,20 @@ export class GpuLifecycleService {
   async getQueueSummary(): Promise<GpuQueueSummary[]> {
     return Promise.all(
       GPU_QUEUES.map(async (name) => {
-        const [counts, oldest] = await Promise.all([
+        const [counts, oldest, oldestActive] = await Promise.all([
           this.jobRepository.getJobCounts(name),
           this.jobRepository.getOldestWaitingTimestamp(name),
+          this.jobRepository.getOldestActiveTimestamp(name),
         ]);
+
+        const activeAgeMs = oldestActive ? Date.now() - oldestActive : null;
+        // All-or-nothing per queue: BullMQ gives us the oldest active start, not
+        // a per-job list, so we cannot tell which of several are stuck. Treating
+        // the queue as stuck when its oldest active job is ancient is the
+        // conservative reading — and the failure it guards against (a box up
+        // forever) costs more than a premature shutdown, which merely retries.
+        const stuck = activeAgeMs !== null && activeAgeMs > STUCK_ACTIVE_AFTER_MS;
+
         return {
           name,
           waiting: counts.waiting,
@@ -142,6 +171,8 @@ export class GpuLifecycleService {
           delayed: counts.delayed,
           failed: counts.failed,
           oldestWaitingAgeSeconds: oldest ? Math.round((Date.now() - oldest) / 1000) : null,
+          oldestActiveAgeSeconds: activeAgeMs === null ? null : Math.round(activeAgeMs / 1000),
+          liveActive: stuck ? 0 : counts.active,
         };
       }),
     );
@@ -239,11 +270,30 @@ export class GpuLifecycleService {
       this.getQueueSummary(),
     ]);
 
-    const pending = queues.reduce((sum, queue) => sum + queue.waiting + queue.active + queue.delayed, 0);
-    const active = queues.reduce((sum, queue) => sum + queue.active, 0);
+    // `liveActive`, not `active`: an orphaned job left behind by a worker that
+    // vanished mid-batch would otherwise report "in flight" forever and hold the
+    // box up until someone noticed the bill.
+    const active = queues.reduce((sum, queue) => sum + queue.liveActive, 0);
+    const stuck = queues.reduce((sum, queue) => sum + (queue.active - queue.liveActive), 0);
+    const pending = queues.reduce((sum, queue) => sum + queue.waiting + queue.liveActive + queue.delayed, 0);
 
-    // A job mid-flight always wins: killing the box now would waste the GPU
-    // seconds already spent on it and force a retry.
+    if (stuck > 0) {
+      await this.auditLogService.record({
+        category: AuditCategory.Gpu,
+        action: 'gpu.jobs.stuck',
+        level: AuditLevel.Warning,
+        message: `${stuck} job(s) have been active far longer than any real job takes — treating them as orphaned so they cannot hold the box up`,
+        detail: {
+          stuck,
+          queues: queues
+            .filter((queue) => queue.active > queue.liveActive)
+            .map((queue) => ({ name: queue.name, active: queue.active, oldestActiveAgeSeconds: queue.oldestActiveAgeSeconds })),
+        },
+      });
+    }
+
+    // A job genuinely mid-flight still wins: killing the box now would waste the
+    // GPU seconds already spent on it and force a retry.
     if (active > 0) {
       return { keepAlive: true, reason: `${active} job(s) in flight`, pending };
     }
@@ -284,8 +334,10 @@ export class GpuLifecycleService {
       this.isWorkerOnline(),
     ]);
 
-    const pending = queues.reduce((sum, queue) => sum + queue.waiting + queue.active + queue.delayed, 0);
-    const active = queues.reduce((sum, queue) => sum + queue.active, 0);
+    const pending = queues.reduce((sum, queue) => sum + queue.waiting + queue.liveActive + queue.delayed, 0);
+    // liveActive, so a job orphaned by a paused box does not make the idle
+    // branch below permanently unreachable and pin the GPU up.
+    const active = queues.reduce((sum, queue) => sum + queue.liveActive, 0);
     const now = Date.now();
 
     // Reconcile first: the heartbeat is the source of truth about whether the
@@ -360,6 +412,8 @@ export class GpuLifecycleService {
     }
 
     if (state.state === 'running' && pending === 0 && active === 0) {
+      // `active` here is liveActive-derived, so an orphaned job no longer keeps
+      // this branch from ever being reached.
       const holding = state.holdUntil && new Date(state.holdUntil).getTime() > now;
       const idleFor = now - new Date(state.since).getTime();
       if (!holding && idleFor > config.idleShutdownMinutes * 60_000) {

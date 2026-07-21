@@ -111,6 +111,17 @@ export class JobRepository {
       const worker = new Worker(queueName, (job) => this.run(job as JobItem), {
         ...bull.config,
         concurrency: QUEUE_CONCURRENCY[queueName],
+        // A media job can hold its lock through a multi-minute ffmpeg run or a
+        // slow cross-region query, and BullMQ's 30s default declares that
+        // stalled and hands the job to another worker — duplicating work and
+        // leaving the original's entry behind. Renewal is automatic while the
+        // handler runs; this only sets how long a lock survives a worker that
+        // has actually died.
+        lockDuration: 5 * 60_000,
+        stalledInterval: 60_000,
+        // Reclaim twice before giving up. Once is unforgiving for a queue whose
+        // worker is a spot GPU box that gets paused mid-batch by design.
+        maxStalledCount: 2,
         // per-minute completed/failed counters kept in Redis, so the API
         // process can read throughput for queues it does not itself run
         metrics: { maxDataPoints: MetricsTime.ONE_HOUR * 2 },
@@ -231,6 +242,16 @@ export class JobRepository {
     const jobs = await this.getQueue(name).getJobs(['waiting'], 0, limit - 1, true);
     const index = jobs.findIndex((job) => match(job.data));
     return index === -1 ? null : index + 1;
+  }
+
+  // When the oldest *active* job started. A job that has been active far longer
+  // than its work could take is not running — it is orphaned, left in Redis by a
+  // worker that vanished mid-job. Distinguishing the two matters because the GPU
+  // box is kept alive by `active > 0`.
+  async getOldestActiveTimestamp(name: QueueName): Promise<number | undefined> {
+    const jobs = await this.getQueue(name).getJobs(['active'], 0, 50, true);
+    const started = jobs.map((job) => job.processedOn).filter((at): at is number => typeof at === 'number');
+    return started.length > 0 ? Math.min(...started) : undefined;
   }
 
   getJobCounts(name: QueueName): Promise<JobCounts> {

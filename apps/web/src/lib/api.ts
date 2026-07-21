@@ -379,6 +379,11 @@ export interface GpuLifecycleState {
 }
 
 export interface GpuQueueSummary {
+  // Null when nothing is active. A large value means the job is orphaned —
+  // left behind by a worker that vanished — not that it is still working.
+  oldestActiveAgeSeconds?: number | null;
+  // Active jobs young enough to plausibly still be running.
+  liveActive?: number;
   name: string;
   waiting: number;
   active: number;

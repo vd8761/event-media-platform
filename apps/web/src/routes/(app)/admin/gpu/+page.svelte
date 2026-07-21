@@ -288,10 +288,25 @@
       </thead>
       <tbody>
         {#each status.queues as queue (queue.name)}
+          {@const stuck = (queue.liveActive ?? queue.active) < queue.active}
           <tr class="border-t border-gray-100">
             <td class="px-4 py-2.5 font-mono text-xs">{queue.name}</td>
             <td class="px-3 py-2.5 text-end">{queue.waiting}</td>
-            <td class="px-3 py-2.5 text-end {queue.active > 0 ? 'font-semibold text-green-700' : ''}">{queue.active}</td>
+            <!-- A stuck queue reads amber with its age, not green: "2 active"
+                 in green for an hour is exactly what hid this the first time. -->
+            <td
+              class="px-3 py-2.5 text-end {stuck
+                ? 'font-semibold text-amber-600'
+                : queue.active > 0
+                  ? 'font-semibold text-green-700'
+                  : ''}"
+              title={stuck
+                ? `Active for ${formatAge(queue.oldestActiveAgeSeconds ?? null)} — treated as orphaned, so it cannot hold the GPU box up`
+                : undefined}
+            >
+              {queue.active}
+              {#if stuck}<span class="ms-1 text-xs">stuck {formatAge(queue.oldestActiveAgeSeconds ?? null)}</span>{/if}
+            </td>
             <td class="px-3 py-2.5 text-end">{queue.delayed}</td>
             <td class="px-3 py-2.5 text-end {queue.failed > 0 ? 'font-semibold text-red-600' : ''}">{queue.failed}</td>
             <td class="px-4 py-2.5 text-end">{formatAge(queue.oldestWaitingAgeSeconds)}</td>
