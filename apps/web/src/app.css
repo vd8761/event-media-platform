@@ -36,11 +36,11 @@
 
 /* Material 3 Expressive text field: 56dp tall, generous padding, tonal fill. */
 @utility immich-form-input {
-  @apply bg-gray-100 ring-1 ring-gray-200 transition outline-none focus-within:ring-primary focus-within:ring-2 disabled:cursor-not-allowed dark:bg-gray-800 dark:ring-neutral-900 dark:focus-within:ring-primary flex w-full items-center rounded-2xl disabled:bg-gray-300 dark:disabled:bg-gray-900 dark:disabled:text-gray-200 flex-1 min-h-14 py-3.5 text-base pl-4 pr-4;
+  @apply bg-gray-100 ring-1 ring-gray-200 transition outline-none focus-within:ring-primary focus-within:ring-2 disabled:cursor-not-allowed dark:ring-neutral-900 dark:focus-within:ring-primary flex w-full items-center rounded-2xl disabled:bg-gray-300 flex-1 min-h-14 py-3.5 text-base pl-4 pr-4;
 }
 
 @utility immich-form-label {
-  @apply text-sm font-medium tracking-[0.1px] text-gray-700 dark:text-gray-300;
+  @apply text-sm font-medium tracking-[0.1px] text-gray-700;
 }
 
 /* --- Material 3 type scale (the subset this app uses) -------------------- */
@@ -182,6 +182,115 @@ input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='
 select:not([data-md-raw]),
 textarea:not([data-md-raw]) {
   min-height: 3.5rem;
+}
+
+@layer base {
+  /* Raw <input>/<select>/<textarea> carry no colours of their own, so on the
+     dark and OLED themes they fell back to the browser default — a white box
+     with black text — which is unreadable against those surfaces and was the
+     visible "theme error" on every hand-rolled form.
+
+     Deliberately in @layer base, not unlayered like the sizing rule above:
+     base sits below utilities, so any element that *does* set its own colour
+     (the top bar's `bg-subtle` search field, for one) still wins.
+
+     No `.dark` counterpart, deliberately: the gray ramp below is *inverted*
+     under `:root.dark`, and `--immich-fg` is repointed at its dark twin, so
+     these three tokens already resolve correctly in both themes. An added
+     `.dark` override double-inverts — `gray-800` is a near-white in dark mode,
+     which is exactly how this rule first shipped light boxes onto OLED. */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([data-md-raw]),
+  select:not([data-md-raw]),
+  textarea:not([data-md-raw]) {
+    background-color: var(--color-gray-100);
+    color: rgb(var(--immich-fg));
+    border-color: var(--color-gray-300);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-gray-500);
+  }
+
+  /* Native pickers (date, time, colour) render their glyphs in the OS colour,
+     which disappears on dark. */
+  .dark input::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+  }
+}
+
+/* --- @immich/ui vs. the inverted gray ramp -------------------------------
+   The ramp inversion further down lets *our* markup drop `dark:` variants
+   entirely. @immich/ui was written against a stock Tailwind ramp, so its
+   components ship the conventional `bg-gray-100 dark:bg-gray-800` pairing —
+   and under inversion that `dark:` half double-inverts straight back into a
+   light surface. That is why the Help dialog's textarea rendered as a white
+   box on OLED while every hand-rolled input was already correct.
+
+   Rather than fork the library, remap just the handful of `dark:` gray
+   utilities it actually emits (Textarea, PinInput, Switch, Code,
+   LoadingSpinner) onto the ramp step that *means* the same thing here.
+   Deliberately UNLAYERED: normal declarations outside any cascade layer beat
+   every layered rule, so these win over the utilities layer regardless of
+   specificity — the same mechanism the button sizing above relies on.
+
+   Pairing is the standard inversion (100↔800, 50↔900, 200↔700, 300↔600,
+   400↔500): each override names the token that renders the shade the library
+   was asking for. */
+.dark .dark\:bg-gray-800 {
+  background-color: var(--color-gray-100);
+}
+
+.dark .dark\:bg-gray-900 {
+  background-color: var(--color-gray-50);
+}
+
+.dark .dark\:bg-gray-500 {
+  background-color: var(--color-gray-400);
+}
+
+.dark .dark\:text-gray-200 {
+  color: var(--color-gray-700);
+}
+
+.dark .dark\:text-gray-300 {
+  color: var(--color-gray-600);
+}
+
+.dark .dark\:text-gray-400,
+.dark .dark\:text-gray-600 {
+  color: var(--color-gray-500);
+}
+
+.dark .dark\:border-gray-500 {
+  border-color: var(--color-gray-400);
+}
+
+/* The disabled/group-disabled variants of the same utilities. Each mirrors the
+   structural condition of the rule it is overriding, so a control only picks
+   these up in exactly the state the library intended. */
+.dark .dark\:disabled\:bg-gray-800:disabled {
+  background-color: var(--color-gray-100);
+}
+
+.dark .dark\:disabled\:bg-gray-900:disabled {
+  background-color: var(--color-gray-50);
+}
+
+.dark .dark\:disabled\:text-gray-200:disabled {
+  color: var(--color-gray-700);
+}
+
+.dark .dark\:group-has-disabled\:bg-gray-900:is(:where(.group):has(:disabled) *) {
+  background-color: var(--color-gray-50);
+}
+
+.dark .dark\:group-has-disabled\:text-gray-200:is(:where(.group):has(:disabled) *) {
+  color: var(--color-gray-700);
+}
+
+.dark .dark\:group-not-has-disabled\:border-gray-700:is(:where(.group):not(:has(:disabled)) *) {
+  border-color: var(--color-gray-200);
 }
 
 /* Switches keep MD3's 32dp track but need a 48dp touch target. Expand the

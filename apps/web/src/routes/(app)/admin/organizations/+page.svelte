@@ -63,13 +63,15 @@
 
 <svelte:head><title>Organizations — EventLens</title></svelte:head>
 
-<div class="mb-6 flex items-center justify-between">
+<!-- Wraps rather than crushing the button against the heading on narrow
+     screens; gap keeps them apart once wrapped. -->
+<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
   <Heading size="large">Organizations</Heading>
   <Button leadingIcon={mdiPlus} onclick={openCreate}>New organization</Button>
 </div>
 
 <div class="md-surface overflow-x-auto">
-  <table class="w-full text-sm">
+  <table class="w-full min-w-3xl text-sm">
     <thead class="bg-immich-gray text-xs text-gray-500">
       <tr>
         <th class="px-4 py-3 text-start font-medium">Name</th>

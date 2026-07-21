@@ -200,6 +200,40 @@ export class AssetRepository {
     return { bytes: Number(row?.bytes ?? 0), assets: Number(row?.assets ?? 0) };
   }
 
+  // Per-event usage breakdown for the account-stats page. One grouped query
+  // rather than a query per event; events with no assets still appear (left
+  // join) so a freshly created event is not silently missing from the list.
+  async getOrgUsageByEvent(orgId: string): Promise<
+    { eventId: string; eventName: string; photos: number; videos: number; bytes: number }[]
+  > {
+    const rows = await this.db
+      .selectFrom('event')
+      .leftJoin('asset', (join) =>
+        join.onRef('asset.eventId', '=', 'event.id').on('asset.deletedAt', 'is', null),
+      )
+      .select((eb) => [
+        'event.id as eventId',
+        'event.name as eventName',
+        sql<string>`count(asset.id) filter (where asset.type = 'image')`.as('photos'),
+        sql<string>`count(asset.id) filter (where asset.type = 'video')`.as('videos'),
+        sql<string>`coalesce(sum(asset.file_size), 0)`.as('bytes'),
+        eb.fn.max('event.createdAt').as('createdAt'),
+      ])
+      .where('event.orgId', '=', orgId)
+      .where('event.deletedAt', 'is', null)
+      .groupBy(['event.id', 'event.name'])
+      .orderBy('createdAt', 'desc')
+      .execute();
+
+    return rows.map((row) => ({
+      eventId: row.eventId,
+      eventName: row.eventName,
+      photos: Number(row.photos),
+      videos: Number(row.videos),
+      bytes: Number(row.bytes),
+    }));
+  }
+
   update(assetId: string, dto: Partial<Insertable<AssetTable>>): Promise<Asset> {
     return this.db
       .updateTable('asset')

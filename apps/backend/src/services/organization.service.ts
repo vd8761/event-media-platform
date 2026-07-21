@@ -75,6 +75,22 @@ export class OrganizationService {
     };
   }
 
+  // Account-usage statistics (Immich's UserUsageStatistic, per organisation):
+  // org-wide totals plus a per-event photo/video/size breakdown.
+  async getUsage(orgId: string) {
+    const events = await this.assetRepository.getOrgUsageByEvent(orgId);
+
+    return {
+      events,
+      totals: {
+        events: events.length,
+        photos: events.reduce((sum, event) => sum + event.photos, 0),
+        videos: events.reduce((sum, event) => sum + event.videos, 0),
+        bytes: events.reduce((sum, event) => sum + event.bytes, 0),
+      },
+    };
+  }
+
   // Organizer-facing feed for the notification bell. Derived from event state
   // rather than a notifications table — there is nothing to mark as read yet,
   // and a stored feed would need its own lifecycle.

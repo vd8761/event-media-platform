@@ -340,7 +340,7 @@
   {#if usingMobileDevice && ((scrolling && scrollLabel) || isHover || isDragging)}
     <div
       id="time-label"
-      class="w-8 rounded-s-full bg-immich-primary ps-2 text-white select-none hover:cursor-pointer dark:bg-gray-600"
+      class="w-8 rounded-s-full bg-immich-primary ps-2 text-immich-bg select-none hover:cursor-pointer"
       style:top="{PADDING_TOP + (scrollRailY - 50 / 2)}px"
       style:height="50px"
       style:right="0"
@@ -356,7 +356,7 @@
           style:bottom="{50 / 2 - 30 / 2}px"
           style:right="36px"
           style:width="fit-content"
-          class="pointer-events-none absolute w-8 truncate rounded-full bg-immich-primary/90 px-4 py-2 text-sm font-semibold text-white select-none hover:cursor-pointer dark:bg-gray-500"
+          class="pointer-events-none absolute w-8 truncate rounded-full bg-immich-primary/90 px-4 py-2 text-sm font-semibold text-immich-bg select-none hover:cursor-pointer"
         >
           {scrollLabel}
         </p>

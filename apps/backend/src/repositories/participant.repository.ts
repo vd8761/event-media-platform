@@ -11,9 +11,18 @@ export interface ParticipantUpsert {
   eventId: string;
   email: string;
   name: string;
+  phone: string | null;
+  // Primary selfie; any extras are written separately via replaceSelfies.
   selfieKey: string;
   galleryTokenHash: Buffer;
   galleryTokenEnc: Buffer;
+}
+
+export interface ParticipantSelfie {
+  id: string;
+  ordinal: number;
+  storageKey: string;
+  embedding: string | null;
 }
 
 export interface MatchInsert {
@@ -82,6 +91,7 @@ export class ParticipantRepository {
           .where('deletedAt', 'is', null)
           .doUpdateSet({
             name: dto.name,
+            phone: dto.phone,
             selfieKey: dto.selfieKey,
             galleryTokenHash: dto.galleryTokenHash,
             galleryTokenEnc: dto.galleryTokenEnc,
@@ -95,6 +105,34 @@ export class ParticipantRepository {
       )
       .returningAll()
       .executeTakeFirstOrThrow();
+  }
+
+  // Replaces the whole selfie set for a participant. Resubmitting is a fresh
+  // start, so the old rows go rather than accumulating across submissions —
+  // matching a person against a selfie they have replaced is exactly the kind
+  // of stale data that produces wrong galleries.
+  async replaceSelfies(participantId: string, keys: string[]): Promise<void> {
+    await this.db.deleteFrom('participantSelfie').where('participantId', '=', participantId).execute();
+    if (keys.length === 0) {
+      return;
+    }
+    await this.db
+      .insertInto('participantSelfie')
+      .values(keys.map((storageKey, ordinal) => ({ participantId, ordinal, storageKey })))
+      .execute();
+  }
+
+  getSelfies(participantId: string): Promise<ParticipantSelfie[]> {
+    return this.db
+      .selectFrom('participantSelfie')
+      .select(['id', 'ordinal', 'storageKey', 'embedding'])
+      .where('participantId', '=', participantId)
+      .orderBy('ordinal', 'asc')
+      .execute();
+  }
+
+  async setSelfieEmbedding(selfieId: string, embedding: string | null): Promise<void> {
+    await this.db.updateTable('participantSelfie').set({ embedding }).where('id', '=', selfieId).execute();
   }
 
   async update(participantId: string, dto: Partial<{
@@ -258,7 +296,24 @@ export class ParticipantRepository {
       .execute();
   }
 
+  // Every stored selfie object for these participants — the retention sweep
+  // needs all of them, not just the primary one on the participant row.
+  async listSelfieKeys(participantIds: string[]): Promise<string[]> {
+    if (participantIds.length === 0) {
+      return [];
+    }
+    const rows = await this.db
+      .selectFrom('participantSelfie')
+      .select('storageKey')
+      .where('participantId', 'in', participantIds)
+      .execute();
+    return rows.map((row) => row.storageKey);
+  }
+
   async softDeleteAndScrub(participantId: string): Promise<void> {
+    // Drops the extra selfies and their embeddings along with the primary one;
+    // scrubbing that left biometric data behind would defeat the point.
+    await this.db.deleteFrom('participantSelfie').where('participantId', '=', participantId).execute();
     await this.db
       .updateTable('participant')
       .set({ selfieEmbedding: null, selfieKey: null, deletedAt: new Date(), updatedAt: new Date() })

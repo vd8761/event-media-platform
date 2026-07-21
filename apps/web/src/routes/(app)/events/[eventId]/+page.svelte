@@ -5,6 +5,7 @@
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
   import PhotoViewer from '$lib/components/PhotoViewer.svelte';
   import Scrubber from '$lib/components/Scrubber.svelte';
+  import UploadPanel, { type UploadItem } from '$lib/components/UploadPanel.svelte';
   import ProcessingBar from '$lib/components/ProcessingBar.svelte';
   import SelectionBar from '$lib/components/SelectionBar.svelte';
   import { Button, Icon, IconButton, LoadingSpinner } from '@immich/ui';
@@ -43,63 +44,16 @@
   const selecting = $derived(selected.size > 0 || selectMode);
   let downloadingZip = $state(false);
 
-  // --- upload panel (Immich UploadPanel pattern) ---
+  // --- uploads ---
   // Items live in this $state array and are only ever mutated *through it*.
   // Holding a reference to the original object and mutating that instead is
   // the classic Svelte 5 trap: the proxy keeps serving the stale value, so the
   // progress bar freezes even though the upload is running fine.
-  interface UploadItem {
-    id: number;
-    name: string;
-    state: 'pending' | 'hashing' | 'uploading' | 'done' | 'duplicate' | 'error';
-    progress: number;
-    error?: string;
-  }
-
+  // Rendering is UploadPanel's job (a port of Immich's).
   const UPLOAD_CONCURRENCY = 3;
   let uploads = $state<UploadItem[]>([]);
-  let uploadPanelOpen = $state(true);
   let nextUploadId = 0;
   let dismissTimer: ReturnType<typeof setTimeout> | undefined;
-
-  const uploadSummary = $derived.by(() => {
-    let active = 0;
-    let done = 0;
-    let duplicate = 0;
-    let failed = 0;
-    let progressTotal = 0;
-    for (const upload of uploads) {
-      switch (upload.state) {
-        case 'done': {
-          done++;
-          progressTotal += 100;
-          break;
-        }
-        case 'duplicate': {
-          duplicate++;
-          progressTotal += 100;
-          break;
-        }
-        case 'error': {
-          failed++;
-          progressTotal += 100;
-          break;
-        }
-        default: {
-          active++;
-          progressTotal += upload.state === 'uploading' ? upload.progress : 0;
-        }
-      }
-    }
-    return {
-      active,
-      done,
-      duplicate,
-      failed,
-      finished: active === 0,
-      percent: uploads.length > 0 ? Math.round(progressTotal / uploads.length) : 0,
-    };
-  });
 
   function patchUpload(id: number, changes: Partial<UploadItem>) {
     const index = uploads.findIndex((upload) => upload.id === id);
@@ -180,7 +134,6 @@
       dismissTimer = undefined;
     }
 
-    uploadPanelOpen = true;
     const items: UploadItem[] = files.map((file) => ({
       id: nextUploadId++,
       name: file.name,
@@ -341,89 +294,7 @@
   <Scrubber timelineElement={timelineEl} revision={assets.length} />
 {/if}
 
-<!-- upload progress panel -->
-{#if uploads.length > 0}
-  <div class="fixed bottom-4 end-4 z-40 w-80 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
-    <div class="flex items-center justify-between gap-2 px-4 py-3">
-      <div class="min-w-0">
-        <p class="truncate text-sm font-semibold">
-          {#if uploadSummary.finished}
-            Upload complete
-          {:else}
-            Uploading {uploadSummary.done + uploadSummary.duplicate + uploadSummary.failed + 1} of {uploads.length}
-          {/if}
-        </p>
-        <p class="truncate text-xs text-gray-500">
-          {uploadSummary.done} uploaded{#if uploadSummary.duplicate > 0}, {uploadSummary.duplicate} already here{/if}{#if uploadSummary.failed > 0}, {uploadSummary.failed} failed{/if}
-        </p>
-      </div>
-      <div class="flex shrink-0 items-center">
-        <IconButton
-          icon={mdiChevronDown}
-          aria-label={uploadPanelOpen ? 'Collapse' : 'Expand'}
-          size="small"
-          variant="ghost"
-          color="secondary"
-          class={uploadPanelOpen ? '' : 'rotate-180'}
-          onclick={() => (uploadPanelOpen = !uploadPanelOpen)}
-        />
-        {#if uploadSummary.finished}
-          <IconButton
-            icon={mdiClose}
-            aria-label="Dismiss"
-            size="small"
-            variant="ghost"
-            color="secondary"
-            onclick={() => (uploads = [])}
-          />
-        {/if}
-      </div>
-    </div>
-
-    <!-- overall progress: always advances, even between files -->
-    <div class="h-1 bg-gray-100">
-      <div
-        class="h-full transition-all duration-300 {uploadSummary.failed > 0 ? 'bg-red-500' : 'bg-immich-primary'}"
-        style="width: {uploadSummary.percent}%"
-      ></div>
-    </div>
-
-    {#if uploadPanelOpen}
-      <div class="immich-scrollbar max-h-56 space-y-2 overflow-y-auto p-4 pt-3">
-        {#each uploads as upload (upload.id)}
-          <div class="text-xs">
-            <div class="flex items-center justify-between gap-2">
-              <span class="truncate">{upload.name}</span>
-              <span class="flex shrink-0 items-center gap-1 text-gray-500">
-                {#if upload.state === 'uploading'}
-                  {upload.progress}%
-                {:else if upload.state === 'hashing'}
-                  checking…
-                {:else if upload.state === 'pending'}
-                  queued
-                {:else if upload.state === 'done'}
-                  <Icon icon={mdiCheckCircle} size="1rem" class="text-green-600" />
-                {:else if upload.state === 'duplicate'}
-                  already here
-                {:else}
-                  <Icon icon={mdiAlertCircleOutline} size="1rem" class="text-red-600" />
-                {/if}
-              </span>
-            </div>
-            {#if upload.state === 'uploading'}
-              <div class="mt-1 h-1 overflow-hidden rounded bg-gray-200">
-                <div class="bg-immich-primary h-full transition-all" style="width: {upload.progress}%"></div>
-              </div>
-            {/if}
-            {#if upload.state === 'error' && upload.error}
-              <p class="mt-0.5 text-[11px] text-red-600">{upload.error}</p>
-            {/if}
-          </div>
-        {/each}
-      </div>
-    {/if}
-  </div>
-{/if}
+<UploadPanel {uploads} onDismiss={() => (uploads = [])} />
 
 {#if viewerIndex >= 0 && assets[viewerIndex]}
   <PhotoViewer

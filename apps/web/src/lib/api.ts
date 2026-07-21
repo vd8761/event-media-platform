@@ -274,6 +274,31 @@ export interface OrgShell {
   events: SidebarEvent[];
 }
 
+// Account usage statistics, per organisation. Modelled on Immich's
+// UserUsageStatistic: headline tiles plus a per-event breakdown.
+export interface OrgUsage {
+  events: { eventId: string; eventName: string; photos: number; videos: number; bytes: number }[];
+  totals: { events: number; photos: number; videos: number; bytes: number };
+}
+
+// A support message in the super-admin inbox.
+export interface SupportTicket {
+  id: string;
+  source: 'organization' | 'public';
+  status: 'open' | 'resolved';
+  message: string;
+  name: string | null;
+  email: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+  orgId: string | null;
+  orgName: string | null;
+  eventId: string | null;
+  eventName: string | null;
+  userName: string | null;
+  userEmail: string | null;
+}
+
 export interface OrgNotification {
   id: string;
   level: 'info' | 'warning';
@@ -458,7 +483,9 @@ export interface GalleryAsset {
 }
 
 export interface GalleryResponse {
+  organization: { name: string | null };
   event: {
+    id: string;
     name: string;
     startsAt: string | null;
     endsAt: string | null;
@@ -502,6 +529,11 @@ export const api = {
     testGpuProvider: () => post<{ ok: boolean; detail: string }>('/admin/gpu/test', {}),
     startGpu: () => post<GpuLifecycleState>('/admin/gpu/start', {}),
     stopGpu: () => post<GpuLifecycleState>('/admin/gpu/stop', {}),
+    // --- support inbox ---
+    supportTickets: (status?: 'open' | 'resolved') =>
+      get<SupportTicket[]>(`/admin/support${status ? `?status=${status}` : ''}`),
+    updateSupportTicket: (id: string, status: 'open' | 'resolved') =>
+      put<void>(`/admin/support/${id}`, { status }),
     updateRetention: (body: { purgeGraceHours: number }) =>
       put<{ purgeGraceHours: number }>('/admin/retention', body),
   },
@@ -511,6 +543,9 @@ export const api = {
     // Everything the app shell needs in one call: sidebar events with covers
     // plus the storage footer.
     shell: (orgId: string) => get<OrgShell>(`/orgs/${orgId}/shell`),
+    usage: (orgId: string) => get<OrgUsage>(`/orgs/${orgId}/usage`),
+    submitSupport: (orgId: string, message: string) =>
+      post<{ id: string }>(`/orgs/${orgId}/support`, { message }),
     notifications: (orgId: string) => get<{ items: OrgNotification[]; unread: number }>(`/orgs/${orgId}/notifications`),
     assets: (orgId: string, cursor?: string, limit = 120) =>
       get<{ assets: OrgTimelineAsset[]; nextCursor: string | null }>(
@@ -628,16 +663,31 @@ export const api = {
   // --- public ---
   public: {
     event: (slug: string) =>
-      get<{ name: string; description: string | null; startsAt: string | null; endsAt: string | null }>(
-        `/public/events/${slug}`,
-      ),
-    submitSelfie: (slug: string, email: string, name: string, selfie: File) => {
+      get<{
+        organization: { name: string | null };
+        id: string;
+        name: string;
+        description: string | null;
+        startsAt: string | null;
+        endsAt: string | null;
+      }>(`/public/events/${slug}`),
+    // 1–3 photos of the same person; the backend treats them as one identity.
+    submitSelfie: (slug: string, body: { email: string; name: string; phone?: string; selfies: File[] }) => {
       const form = new FormData();
-      form.append('email', email);
-      form.append('name', name);
-      form.append('selfie', selfie);
+      form.append('email', body.email);
+      form.append('name', body.name);
+      if (body.phone) {
+        form.append('phone', body.phone);
+      }
+      for (const selfie of body.selfies) {
+        form.append('selfie', selfie);
+      }
       return request<{ message: string }>(`/public/events/${slug}/participants`, { method: 'POST', body: form });
     },
+    // Public help form. Name and email are optional — a guest who cannot get
+    // into their gallery should not have to identify themselves to say so.
+    submitSupport: (body: { message: string; name?: string; email?: string; eventId?: string }) =>
+      post<{ id: string }>('/public/support', body),
     gallery: (token: string) => get<GalleryResponse>(`/public/gallery/${token}`),
     // whole-event gallery — 404s unless the organiser shared it
     eventAssets: (token: string, cursor?: string, limit = 100) =>

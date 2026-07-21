@@ -30,6 +30,14 @@ export class OrganizationController {
     return this.organizationService.getShell(orgId);
   }
 
+  // Account stats. Member-level: usage figures are org-wide context, not
+  // owner-only settings.
+  @Get(':orgId/usage')
+  @Authenticated({ orgRole: OrgRole.Member })
+  getUsage(@Param('orgId') orgId: string) {
+    return this.organizationService.getUsage(orgId);
+  }
+
   @Get(':orgId/notifications')
   @Authenticated({ orgRole: OrgRole.Member })
   getNotifications(@Param('orgId') orgId: string) {

@@ -68,7 +68,7 @@
     <!-- Counts only: events are never named here, because a super admin
          administers organizations without access to what is inside them. -->
     <div class="md-surface mb-8 overflow-x-auto">
-      <table class="w-full text-sm">
+      <table class="w-full min-w-3xl text-sm">
         <thead class="bg-immich-gray text-xs text-gray-500">
           <tr>
             <th class="px-4 py-3 text-start font-medium">Organization</th>
@@ -169,7 +169,7 @@
 
   <Heading size="small" class="mb-3">Queues</Heading>
   <div class="md-surface overflow-x-auto">
-    <table class="w-full text-sm">
+    <table class="w-full min-w-3xl text-sm">
       <thead class="bg-immich-gray text-xs text-gray-500">
         <tr>
           <th class="px-4 py-3 text-start font-medium">Queue</th>

@@ -22,6 +22,7 @@ import { ParticipantRepository } from 'src/repositories/participant.repository';
 import { PersonRepository } from 'src/repositories/person.repository';
 import { SessionRepository } from 'src/repositories/session.repository';
 import { StorageRepository } from 'src/repositories/storage.repository';
+import { SupportRepository } from 'src/repositories/support.repository';
 import { SystemConfigRepository } from 'src/repositories/system-config.repository';
 import { TelemetryRepository } from 'src/repositories/telemetry.repository';
 import { UserRepository } from 'src/repositories/user.repository';
@@ -51,6 +52,7 @@ export const repositories = [
   PersonRepository,
   SessionRepository,
   StorageRepository,
+  SupportRepository,
   SystemConfigRepository,
   TelemetryRepository,
   UserRepository,

@@ -147,7 +147,7 @@
         >
           {#snippet children({ feature })}
             <div
-              class="flex size-10 items-center justify-center rounded-full bg-immich-primary text-sm font-bold text-white shadow-lg transition hover:scale-110"
+              class="flex size-10 items-center justify-center rounded-full bg-immich-primary text-sm font-bold text-immich-bg shadow-lg transition hover:scale-110"
             >
               {feature.properties?.point_count?.toLocaleString()}
             </div>
@@ -226,5 +226,41 @@
      real colours. */
   .dark-basemap :global(.maplibregl-canvas) {
     filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9);
+  }
+
+  /* MapLibre ships its controls as a hard-coded white button group, so on the
+     dark and OLED themes a bright white cluster sat on top of the dark UI.
+     The glyphs are background-image SVGs rather than currentColor, so they
+     take the same invert treatment as the basemap instead of a colour. */
+  .dark-basemap :global(.maplibregl-ctrl-group) {
+    background-color: var(--color-gray-100);
+  }
+
+  .dark-basemap :global(.maplibregl-ctrl-group button + button) {
+    border-top-color: var(--color-gray-300);
+  }
+
+  .dark-basemap :global(.maplibregl-ctrl-group button:hover) {
+    background-color: var(--color-gray-200);
+  }
+
+  .dark-basemap :global(.maplibregl-ctrl-icon) {
+    filter: invert(1);
+  }
+
+  /* Scale bar and attribution are plain text/borders, so they follow the
+     theme tokens directly. */
+  .dark-basemap :global(.maplibregl-ctrl-scale) {
+    background-color: color-mix(in srgb, var(--color-gray-100) 70%, transparent);
+    border-color: var(--color-gray-400);
+    color: rgb(var(--immich-fg));
+  }
+
+  .dark-basemap :global(.maplibregl-ctrl-attrib) {
+    background-color: color-mix(in srgb, var(--color-gray-100) 70%, transparent);
+  }
+
+  .dark-basemap :global(.maplibregl-ctrl-attrib a) {
+    color: rgb(var(--immich-fg));
   }
 </style>

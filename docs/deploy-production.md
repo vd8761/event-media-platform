@@ -180,6 +180,7 @@ EMAIL_FROM=EventLens <no-reply@yourdomain.com>
 
 EL_TOKEN_ENCRYPTION_KEY=<openssl rand -hex 32>
 EL_PUBLIC_BASE_URL=https://your-app.vercel.app    # set in §7, after Vercel exists
+EL_SUPPORT_EMAIL=support@yourdomain.com             # optional: inbox for the Help form
 EL_STAGING_FOLDER=/tmp/staging                     # writable on Render
 EL_SESSION_TTL_DAYS=90
 
@@ -192,6 +193,7 @@ Notes:
 - **`EL_PORT` is optional.** The app now falls back to Render's injected `PORT`, so you can drop `EL_PORT` entirely and let the platform decide. Set it only if you want to pin a specific port.
 - Leave `EL_HOST` unset — Express then binds `0.0.0.0`, which is what Render needs.
 - `EL_STAGING_FOLDER=/tmp/staging` rather than the image's `/staging`: staging is transient scratch for in-flight uploads, and `/tmp` is unambiguously writable. Anything in flight is lost on restart either way.
+- `EL_SUPPORT_EMAIL` is optional. Support messages from the Help dialog are always stored and shown in the super-admin **Support** tab; this only adds an email notification on top. Leave it unset and nothing is lost.
 - `EL_PUBLIC_BASE_URL` is a chicken-and-egg with Vercel. Deploy Render first with a placeholder, then come back and set it in §7.
 
 ### 5.3 Deploy and verify
@@ -544,6 +546,7 @@ Worth knowing either way: matching a selfie is embedding **plus** a KNN query ag
 | `RESEND_WEBHOOK_SECRET` | ✅ | — | — |
 | `EL_GPU_HEARTBEAT_TOKEN` | ✅ | ✅ (same value, used by the shutdown script) | — |
 | `EL_PUBLIC_BASE_URL` | ✅ | ✅ | — |
+| `EL_SUPPORT_EMAIL` | optional | — | — |
 | `EL_STAGING_FOLDER` | `/tmp/staging` | — | — |
 | `EL_CACHE_FOLDER` | — | `/cache` | — |
 

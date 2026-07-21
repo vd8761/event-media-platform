@@ -93,6 +93,9 @@ export const EnvSchema = z.object({
   SMTP_FROM: z.string().optional(),
 
   EL_PUBLIC_BASE_URL: z.string().optional(),
+  // Where support messages from the Help dialog are emailed. Unset means the
+  // ticket is still stored and shown in the admin Support tab, just not mailed.
+  EL_SUPPORT_EMAIL: z.string().optional(),
   EL_TOKEN_ENCRYPTION_KEY: z.string().optional(),
   EL_SESSION_TTL_DAYS: optionalInt,
   EL_STAGING_FOLDER: z.string().optional(),

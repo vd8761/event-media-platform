@@ -28,7 +28,7 @@
 <div class="flex min-h-screen items-center justify-center bg-immich-bg p-4">
   <div class="w-full max-w-md rounded-3xl border border-gray-200 p-10 shadow-sm">
     <div class="mb-8 text-center">
-      <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-immich-primary text-2xl text-white">
+      <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-immich-primary text-2xl text-immich-bg">
         EL
       </div>
       <Heading size="large">EventLens</Heading>

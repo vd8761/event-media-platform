@@ -10,13 +10,14 @@ import {
 } from '@nestjs/common';
 import archiver from 'archiver';
 import { unlink } from 'node:fs/promises';
-import { StagedUpload } from 'src/middleware/file-upload.interceptor';
+import { MAX_SELFIES, StagedUpload } from 'src/middleware/file-upload.interceptor';
 import { EventStatus, JobName, ParticipantStatus } from 'src/enum';
 import { AssetRepository } from 'src/repositories/asset.repository';
 import { CryptoRepository } from 'src/repositories/crypto.repository';
 import { EventRepository } from 'src/repositories/event.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
+import { OrganizationRepository } from 'src/repositories/organization.repository';
 import { ParticipantRepository } from 'src/repositories/participant.repository';
 import { PersonRepository } from 'src/repositories/person.repository';
 import { StorageRepository } from 'src/repositories/storage.repository';
@@ -47,6 +48,7 @@ export class PublicService {
     private galleryTokenService: GalleryTokenService,
     private jobRepository: JobRepository,
     private logger: LoggingRepository,
+    private organizationRepository: OrganizationRepository,
     private participantRepository: ParticipantRepository,
     private personRepository: PersonRepository,
     private personService: PersonService,
@@ -58,7 +60,14 @@ export class PublicService {
   // 404 for draft/closed/disabled events — indistinguishable from nonexistent
   async getPublicEvent(slug: string) {
     const event = await this.getActiveEvent(slug);
+    // The public top bar credits the organiser on the right, so the org name
+    // travels with every public event payload.
+    const org = await this.organizationRepository.getById(event.orgId);
     return {
+      organization: { name: org?.name ?? null },
+      // Public id, so a support message sent from this page can be filed
+      // against the right event.
+      id: event.id,
       name: event.name,
       description: event.description,
       startsAt: event.startsAt,
@@ -71,18 +80,26 @@ export class PublicService {
     slug: string,
     email: string,
     name: string,
-    staged: StagedUpload | undefined,
+    phone: string | undefined,
+    staged: StagedUpload[],
     clientIp: string,
   ) {
     try {
-      if (!staged) {
+      // 1–3 photos, all of the same person (migration 0011). More than three
+      // is rejected rather than silently truncated.
+      if (staged.length === 0) {
         throw new BadRequestException('Missing selfie file');
       }
-      if (!staged.mimeType.startsWith('image/')) {
-        throw new BadRequestException('Selfie must be an image');
+      if (staged.length > MAX_SELFIES) {
+        throw new BadRequestException(`Please submit at most ${MAX_SELFIES} photos`);
       }
-      if (staged.size > MAX_SELFIE_BYTES) {
-        throw new PayloadTooLargeException('Selfie exceeds 15 MB');
+      for (const file of staged) {
+        if (!file.mimeType.startsWith('image/')) {
+          throw new BadRequestException('Selfie must be an image');
+        }
+        if (file.size > MAX_SELFIE_BYTES) {
+          throw new PayloadTooLargeException('Selfie exceeds 15 MB');
+        }
       }
 
       const event = await this.getActiveEvent(slug);
@@ -94,24 +111,30 @@ export class PublicService {
         throw new HttpException('Too many requests', HttpStatus.TOO_MANY_REQUESTS);
       }
 
-      // upsert on (event_id, email): new selfie replaces old, token regenerated
+      // upsert on (event_id, email): new selfies replace old, token regenerated
       const token = this.galleryTokenService.generate();
       const participantId = crypto.randomUUID();
-      const selfieKey = StorageKeys.selfie(event.orgId, event.id, participantId);
-      await this.storageRepository.putFile(staged.stagingPath, selfieKey, staged.mimeType);
+      const keys = staged.map((_, index) => StorageKeys.selfie(event.orgId, event.id, participantId, index));
+      await Promise.all(staged.map((file, index) => this.storageRepository.putFile(file.stagingPath, keys[index], file.mimeType)));
 
       const participant = await this.participantRepository.upsert({
         eventId: event.id,
         email,
         name: name.trim(),
-        selfieKey,
+        phone: phone?.trim() || null,
+        // The first photo stays the primary one on the participant row.
+        selfieKey: keys[0],
         galleryTokenHash: token.hash,
         galleryTokenEnc: token.enc,
       });
 
+      // Written after the upsert so a resubmission replaces the previous set
+      // rather than mixing old and new photos of the same person.
+      await this.participantRepository.replaceSelfies(participant.id, keys);
+
       // Acknowledge first, match second: the confirmation email carries the
       // same gallery link and goes out immediately, so the participant has
-      // somewhere to look while the selfie is still being processed.
+      // somewhere to look while the selfies are still being processed.
       await this.jobRepository.queueAll([
         { name: JobName.SendSelfieReceived, data: { participantId: participant.id } },
         { name: JobName.SelfieProcess, data: { participantId: participant.id } },
@@ -120,9 +143,7 @@ export class PublicService {
       // response is always the same generic 202 — no email enumeration
       return { message: "Check your email — we've sent you a link to your photos." };
     } finally {
-      if (staged) {
-        await unlink(staged.stagingPath).catch(() => undefined);
-      }
+      await Promise.all(staged.map((file) => unlink(file.stagingPath).catch(() => undefined)));
     }
   }
 
@@ -167,8 +188,12 @@ export class PublicService {
       await this.participantRepository.update(participant.id, update);
     }
 
+    const org = await this.organizationRepository.getById(event.orgId);
+
     return {
+      organization: { name: org?.name ?? null },
       event: {
+        id: event.id,
         name: event.name,
         startsAt: event.startsAt,
         endsAt: event.endsAt,

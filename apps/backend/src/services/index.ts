@@ -17,6 +17,7 @@ import { OrganizationService } from 'src/services/organization.service';
 import { ParticipantService } from 'src/services/participant.service';
 import { PersonService } from 'src/services/person.service';
 import { PublicService } from 'src/services/public.service';
+import { SupportService } from 'src/services/support.service';
 import { UploadService } from 'src/services/upload.service';
 
 export const services = [
@@ -39,5 +40,6 @@ export const services = [
   ParticipantService,
   PersonService,
   PublicService,
+  SupportService,
   UploadService,
 ];

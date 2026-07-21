@@ -5,11 +5,13 @@
   // on the right. Built from the shared @immich/ui controls.
   import { goto } from '$app/navigation';
   import type { Me } from '$lib/api';
+  import HelpDialog from '$lib/components/HelpDialog.svelte';
   import ThemeSwitcher from '$lib/components/ThemeSwitcher.svelte';
   import { formatBytes, shellStore } from '$lib/shell.svelte';
   import { Icon, IconButton } from '@immich/ui';
   import {
     mdiBellBadge,
+    mdiChartBoxOutline,
     mdiBellOutline,
     mdiHelpCircleOutline,
     mdiLogout,
@@ -30,6 +32,7 @@
   let query = $state('');
   let filtersOpen = $state(false);
   let panel = $state<'none' | 'notifications' | 'account'>('none');
+  let helpOpen = $state(false);
 
   const org = $derived(me.organizations[0]);
   // Non-round brand mark: an organiser's logo is rarely a circle, and cropping
@@ -56,7 +59,11 @@
 <svelte:window onclick={() => (panel = 'none')} />
 
 <header class="bg-immich-bg sticky top-0 z-30 h-16 w-full border-b border-gray-200">
-  <div class="grid h-full grid-cols-[3rem_auto] items-center lg:grid-cols-[16rem_auto]">
+  <!-- Mobile sizes the brand cell to its content: pinning it to a fixed 3rem
+       let the `shrink-0` logo link overflow on top of the hamburger (later in
+       DOM order = painted above), which swallowed every tap on the menu
+       button. From lg the cell is the rail's 16rem so the two line up. -->
+  <div class="grid h-full grid-cols-[auto_1fr] items-center lg:grid-cols-[16rem_auto]">
     <!-- Brand cell — aligns to the rail width. -->
     <div class="mx-2 flex items-center gap-1 lg:mx-4">
       <IconButton
@@ -70,7 +77,7 @@
         class="lg:hidden"
       />
       <a href="/photos" class="flex shrink-0 items-center gap-2 px-1">
-        <span class="bg-primary flex size-8 items-center justify-center rounded-xl text-xs font-bold text-white">
+        <span class="bg-primary flex size-8 items-center justify-center rounded-xl text-xs font-bold text-immich-bg">
           EL
         </span>
         <span class="text-primary hidden text-lg font-semibold lg:inline">EventLens</span>
@@ -236,14 +243,27 @@
               <div class="my-1.5 border-t border-gray-200"></div>
 
               <a
-                href="https://github.com/immich-app/immich"
-                target="_blank"
-                rel="noreferrer noopener"
+                href="/settings/usage"
+                onclick={() => (panel = 'none')}
                 class="hover:bg-subtle flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm text-gray-700 transition"
               >
-                <Icon icon={mdiHelpCircleOutline} size="1.25rem" />
-                Help and feedback
+                <Icon icon={mdiChartBoxOutline} size="1.25rem" />
+                Account stats
               </a>
+              <!-- Help is organiser-facing only: a super admin receives these
+                   messages, so offering them the form would be circular. -->
+              {#if !me.isSuperAdmin}
+                <button
+                  onclick={() => {
+                    panel = 'none';
+                    helpOpen = true;
+                  }}
+                  class="hover:bg-subtle flex min-h-11 w-full items-center gap-3 rounded-2xl px-3 text-sm text-gray-700 transition"
+                >
+                  <Icon icon={mdiHelpCircleOutline} size="1.25rem" />
+                  Help
+                </button>
+              {/if}
               <button
                 onclick={onSignOut}
                 class="hover:bg-subtle flex min-h-11 w-full items-center gap-3 rounded-2xl px-3 text-sm text-gray-700 transition"
@@ -277,4 +297,8 @@
       <span class="self-center text-xs text-gray-500">Filters arrive with search.</span>
     </div>
   </div>
+{/if}
+
+{#if helpOpen && org}
+  <HelpDialog orgId={org.id} onClose={() => (helpOpen = false)} />
 {/if}

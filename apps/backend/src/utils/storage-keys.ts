@@ -11,8 +11,13 @@ export const StorageKeys = {
     `org/${orgId}/event/${eventId}/video/${assetId}.mp4`,
   person: (orgId: string, eventId: string, personId: string) =>
     `org/${orgId}/event/${eventId}/person/${personId}.jpeg`,
-  selfie: (orgId: string, eventId: string, participantId: string) =>
-    `org/${orgId}/event/${eventId}/selfie/${participantId}.jpg`,
+  // `index` numbers the participant's selfies (up to three since migration
+  // 0011). Index 0 keeps the original single-selfie key so pre-0011 objects
+  // stay addressable at the path already stored against them.
+  selfie: (orgId: string, eventId: string, participantId: string, index = 0) =>
+    index === 0
+      ? `org/${orgId}/event/${eventId}/selfie/${participantId}.jpg`
+      : `org/${orgId}/event/${eventId}/selfie/${participantId}-${index}.jpg`,
   eventPrefix: (orgId: string, eventId: string) => `org/${orgId}/event/${eventId}/`,
   orgPrefix: (orgId: string) => `org/${orgId}/`,
 };

@@ -104,7 +104,7 @@
   <div class="flex justify-center py-20"><LoadingSpinner size="giant" /></div>
 {:else}
   <!-- headline counters -->
-  <div class="mb-6 grid grid-cols-3 gap-3 sm:gap-4">
+  <div class="mb-6 grid grid-cols-1 gap-3 min-[420px]:grid-cols-3 sm:gap-4">
     <div class="md-surface p-4">
       <p class="md-label-medium text-gray-600">Active</p>
       <p class="md-display-small mt-1 {totals.active > 0 ? 'text-immich-primary' : ''}">{totals.active}</p>

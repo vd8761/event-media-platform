@@ -232,7 +232,7 @@
                 {/if}
                 {#if isPicked}
                   <span
-                    class="bg-immich-primary absolute end-1 top-1 flex h-6 w-6 items-center justify-center rounded-full text-white"
+                    class="bg-immich-primary absolute end-1 top-1 flex h-6 w-6 items-center justify-center rounded-full text-immich-bg"
                   >
                     <Icon icon={mdiCheck} size="1rem" />
                   </span>
@@ -292,7 +292,7 @@
     {#each tabs as item (item.id)}
       <button
         class="md-label-large min-h-10 rounded-full px-4 transition
-          {tab === item.id ? 'bg-immich-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+          {tab === item.id ? 'bg-immich-primary text-immich-bg' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
         onclick={() => selectTab(item.id)}
       >
         {item.label}

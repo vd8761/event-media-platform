@@ -191,6 +191,19 @@ export enum EmailStatus {
   Failed = 'failed',
 }
 
+// Where a support message came from. `organization` messages have a signed-in
+// organiser behind them; `public` ones come from a guest page and are
+// self-identified at best.
+export enum SupportSource {
+  Organization = 'organization',
+  Public = 'public',
+}
+
+export enum SupportStatus {
+  Open = 'open',
+  Resolved = 'resolved',
+}
+
 export enum SystemConfigKey {
   FacialRecognition = 'facialRecognition',
   Smtp = 'smtp',

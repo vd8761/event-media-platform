@@ -77,8 +77,8 @@
        wake the box now regardless of the thresholds. -->
   <div class="md-surface mb-8 p-5">
     <div class="flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <div class="mb-1 flex items-center gap-2">
+      <div class="min-w-0">
+        <div class="mb-1 flex flex-wrap items-center gap-2">
           <Badge color={stateColor(status.state.state)}>{status.state.state}</Badge>
           {#if status.workerOnline}
             <Badge color="success" size="small">worker reporting</Badge>
@@ -95,7 +95,7 @@
         {/if}
       </div>
 
-      <div class="flex gap-2">
+      <div class="flex flex-wrap gap-2">
         <Button
           disabled={busy || status.pending === 0}
           onclick={() => run(() => api.admin.startGpu())}
@@ -133,7 +133,7 @@
 
   <Heading size="small" class="mb-3">Pending work</Heading>
   <div class="md-surface mb-8 overflow-x-auto">
-    <table class="w-full text-sm">
+    <table class="w-full min-w-3xl text-sm">
       <thead class="bg-immich-gray text-xs text-gray-500">
         <tr>
           <th class="px-4 py-3 text-start font-medium">Queue</th>
@@ -193,7 +193,7 @@
               type="button"
               onclick={() => form && (form.provider = value as 'webhook' | 'jarvislabs')}
               class="md-label-large rounded-full px-4 py-2 transition {form.provider === value
-                ? 'bg-immich-primary text-white'
+                ? 'bg-immich-primary text-immich-bg'
                 : 'bg-subtle text-gray-700 hover:bg-gray-200/70'}"
             >
               {label}

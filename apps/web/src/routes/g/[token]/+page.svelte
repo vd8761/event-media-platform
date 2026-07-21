@@ -14,6 +14,7 @@
   } from '$lib/api';
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
   import PhotoViewer from '$lib/components/PhotoViewer.svelte';
+  import PublicTopBar from '$lib/components/PublicTopBar.svelte';
   import Scrubber from '$lib/components/Scrubber.svelte';
   import SelectionBar from '$lib/components/SelectionBar.svelte';
   import { Button, Icon, LoadingSpinner } from '@immich/ui';
@@ -161,8 +162,17 @@
 
 <svelte:head><title>Your photos — EventLens</title></svelte:head>
 
+<!-- Shared guest top bar: EventLens on the left, the organiser on the right.
+     Rendered outside the branches so it is present on the expired and
+     not-found states too, which are otherwise unbranded dead ends. -->
+<PublicTopBar
+  orgName={gallery?.organization.name ?? null}
+  eventName={gallery?.event.name ?? null}
+  eventId={gallery?.event.id}
+/>
+
 {#if expired}
-  <div class="bg-immich-bg flex min-h-screen items-center justify-center p-4">
+  <div class="bg-immich-bg flex min-h-[calc(100vh-4rem)] items-center justify-center p-4">
     <div class="md-surface w-full max-w-md p-8 text-center">
       <p class="md-title-large mb-2">{expired.eventName} has closed</p>
       <p class="md-body-medium text-gray-600">
@@ -184,18 +194,17 @@
     </div>
   </div>
 {:else if notFound}
-  <div class="bg-immich-bg flex min-h-screen items-center justify-center p-4">
+  <div class="bg-immich-bg flex min-h-[calc(100vh-4rem)] items-center justify-center p-4">
     <p class="text-gray-500">This gallery link is invalid or has expired.</p>
   </div>
 {:else if !gallery}
-  <div class="bg-immich-bg flex min-h-screen items-center justify-center"><LoadingSpinner size="giant" /></div>
+  <div class="bg-immich-bg flex min-h-[calc(100vh-4rem)] items-center justify-center"><LoadingSpinner size="giant" /></div>
 {:else}
-  <div class="bg-immich-bg flex min-h-screen">
+  <div class="bg-immich-bg flex min-h-[calc(100vh-4rem)]">
     <!-- sidebar (desktop) -->
-    <aside class="bg-immich-gray fixed inset-y-0 start-0 z-10 hidden w-64 flex-col border-e border-gray-100 px-3 py-5 md:flex">
+    <aside class="bg-immich-gray fixed bottom-0 top-16 start-0 z-10 hidden w-64 flex-col border-e border-gray-100 px-3 py-5 md:flex">
       <div class="mb-8 px-3">
-        <p class="md-title-large text-immich-primary">EventLens</p>
-        <p class="md-body-medium mt-1 truncate text-gray-500">{gallery.event.name}</p>
+        <p class="md-title-large truncate">{gallery.event.name}</p>
       </div>
 
       <nav class="flex flex-1 flex-col gap-1">
@@ -232,17 +241,16 @@
       {/if}
     </aside>
 
-    <main class="min-h-screen min-w-0 flex-1 px-4 py-5 sm:px-6 md:ms-64 md:px-8 md:py-6">
+    <main class="min-h-[calc(100vh-4rem)] min-w-0 flex-1 px-4 py-5 sm:px-6 md:ms-64 md:px-8 md:py-6">
       <!-- mobile: brand + segmented tabs -->
       <div class="mb-4 md:hidden">
-        <p class="md-title-medium text-immich-primary">EventLens</p>
-        <p class="md-body-medium truncate text-gray-500">{gallery.event.name}</p>
+        <p class="md-title-medium truncate">{gallery.event.name}</p>
       </div>
       {#if showAll}
         <div class="mb-4 flex gap-2 md:hidden">
           <button
             class="md-label-large min-h-10 rounded-full px-4 {tab === 'mine'
-              ? 'bg-immich-primary text-white'
+              ? 'bg-immich-primary text-immich-bg'
               : 'bg-gray-100 text-gray-700'}"
             onclick={() => selectTab('mine')}
           >
@@ -250,7 +258,7 @@
           </button>
           <button
             class="md-label-large min-h-10 rounded-full px-4 {tab === 'event' || tab === 'person'
-              ? 'bg-immich-primary text-white'
+              ? 'bg-immich-primary text-immich-bg'
               : 'bg-gray-100 text-gray-700'}"
             onclick={() => selectTab('event')}
           >

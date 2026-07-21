@@ -64,34 +64,57 @@ export class ParticipantService {
 
     const config = await this.getConfig(participant.eventId);
     const workDir = join(this.cacheFolder, `selfie-${participantId}`);
-    const selfiePath = join(workDir, 'selfie.jpg');
+
+    // A participant may have submitted up to three photos of themselves
+    // (migration 0011). Each is embedded independently and they are all
+    // treated as the same person at match time.
+    const selfies = await this.participantRepository.getSelfies(participantId);
 
     try {
       await mkdir(workDir, { recursive: true });
-      await this.storageRepository.downloadToFile(participant.selfieKey, selfiePath);
 
-      const { faces } = await this.machineLearningRepository.detectFaces(selfiePath, {
-        modelName: config.modelName,
-        minScore: config.minScore,
-      });
+      let embedded = 0;
+      for (const selfie of selfies) {
+        const selfiePath = join(workDir, `selfie-${selfie.ordinal}.jpg`);
+        await this.storageRepository.downloadToFile(selfie.storageKey, selfiePath);
 
-      if (faces.length === 0) {
-        this.logger.log(`No face detected in selfie of participant ${participantId}`);
+        const { faces } = await this.machineLearningRepository.detectFaces(selfiePath, {
+          modelName: config.modelName,
+          minScore: config.minScore,
+        });
+
+        if (faces.length === 0) {
+          // One unusable photo out of three is not a failure — the others can
+          // still carry the match, so this is recorded and skipped.
+          this.logger.log(`No face in selfie ${selfie.ordinal} of participant ${participantId}`);
+          await this.participantRepository.setSelfieEmbedding(selfie.id, null);
+          continue;
+        }
+
+        // pick the largest bounding box (docs/plan/06 §6)
+        const largest = faces.reduce((a, b) => {
+          const areaA = (a.boundingBox.x2 - a.boundingBox.x1) * (a.boundingBox.y2 - a.boundingBox.y1);
+          const areaB = (b.boundingBox.x2 - b.boundingBox.x1) * (b.boundingBox.y2 - b.boundingBox.y1);
+          return areaB > areaA ? b : a;
+        });
+
+        await this.participantRepository.setSelfieEmbedding(selfie.id, largest.embedding);
+        // The first usable embedding also becomes the participant's primary —
+        // it is what the sweep and re-match queries treat as "processed".
+        if (embedded === 0) {
+          await this.participantRepository.update(participantId, { selfieEmbedding: largest.embedding });
+        }
+        embedded += 1;
+      }
+
+      if (embedded === 0) {
+        this.logger.log(`No face detected in any selfie of participant ${participantId}`);
         await this.participantRepository.update(participantId, { status: ParticipantStatus.NoFace });
         await this.jobRepository.queue({ name: JobName.SendNoFaceEmail, data: { participantId } });
         return JobStatus.Success;
       }
 
-      // pick the largest bounding box (docs/plan/06 §6)
-      const largest = faces.reduce((a, b) => {
-        const areaA = (a.boundingBox.x2 - a.boundingBox.x1) * (a.boundingBox.y2 - a.boundingBox.y1);
-        const areaB = (b.boundingBox.x2 - b.boundingBox.x1) * (b.boundingBox.y2 - b.boundingBox.y1);
-        return areaB > areaA ? b : a;
-      });
-
-      await this.participantRepository.update(participantId, { selfieEmbedding: largest.embedding });
-
-      // run the match inline — this worker already holds the embedding
+      // run the match inline — this worker already holds the embeddings
       const updated = await this.participantRepository.getById(participantId);
       const newMatches = await this.matchParticipant(updated!);
       if (newMatches > 0) {
@@ -112,18 +135,41 @@ export class ParticipantService {
     }
 
     const config = await this.getConfig(participant.eventId);
-    const results = await this.faceSearchRepository.searchFacesByEmbedding(
-      participant.eventId,
-      participant.selfieEmbedding,
-      { numResults: MATCH_NUM_RESULTS, maxDistance: config.maxDistance },
-    );
+
+    // Search once per selfie and union the hits, keeping the smallest distance
+    // for each face. All the selfies are the same person, so a photo that only
+    // one of them recognises is still a correct match — taking the best
+    // distance per face is what makes three photos strictly better than one.
+    // Falls back to the primary embedding for pre-0011 participants that have
+    // no participant_selfie rows.
+    const selfies = await this.participantRepository.getSelfies(participant.id);
+    const embeddings = selfies
+      .map((selfie) => selfie.embedding)
+      .filter((embedding): embedding is string => embedding !== null);
+    if (embeddings.length === 0) {
+      embeddings.push(participant.selfieEmbedding);
+    }
+
+    const best = new Map<string, { assetId: string; distance: number }>();
+    for (const embedding of embeddings) {
+      const hits = await this.faceSearchRepository.searchFacesByEmbedding(participant.eventId, embedding, {
+        numResults: MATCH_NUM_RESULTS,
+        maxDistance: config.maxDistance,
+      });
+      for (const hit of hits) {
+        const current = best.get(hit.id);
+        if (!current || hit.distance < current.distance) {
+          best.set(hit.id, { assetId: hit.assetId, distance: hit.distance });
+        }
+      }
+    }
 
     const inserted = await this.participantRepository.insertMatches(
-      results.map((result) => ({
+      [...best.entries()].map(([faceId, hit]) => ({
         participantId: participant.id,
-        assetId: result.assetId,
-        viaFaceId: result.id,
-        distance: result.distance,
+        assetId: hit.assetId,
+        viaFaceId: faceId,
+        distance: hit.distance,
       })),
     );
 
@@ -186,7 +232,9 @@ export class ParticipantService {
       return JobStatus.Success;
     }
 
-    const keys = expired.map((participant) => participant.selfieKey!).filter(Boolean);
+    // Both the primary selfie key and any extras (migration 0011).
+    const extraKeys = await this.participantRepository.listSelfieKeys(expired.map((p) => p.id));
+    const keys = [...new Set([...expired.map((participant) => participant.selfieKey!), ...extraKeys])].filter(Boolean);
     if (keys.length > 0) {
       await this.jobRepository.queue({ name: JobName.CleanupKeys, data: { keys } });
     }

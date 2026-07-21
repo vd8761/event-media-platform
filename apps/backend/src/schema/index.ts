@@ -18,6 +18,8 @@ import {
   OrgRole,
   OrgStatus,
   ParticipantStatus,
+  SupportSource,
+  SupportStatus,
 } from 'src/enum';
 
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
@@ -200,8 +202,12 @@ export interface ParticipantTable {
   email: string;
   // Collected with the selfie; labels their face in the viewer (migration 0005).
   name: Generated<string>;
+  // Primary (first) selfie. Since migration 0011 a participant may have up to
+  // three; the rest live in participantSelfie. These two columns stay as the
+  // primary selfie and as the "has been processed" flag the sweep keys off.
   selfieKey: string | null;
   selfieEmbedding: string | null;
+  phone: string | null;
   galleryTokenHash: Buffer;
   // AES-256-GCM(raw token) — digest emails need the raw token for the link
   galleryTokenEnc: Buffer | null;
@@ -216,6 +222,19 @@ export interface ParticipantTable {
   createdAt: CreatedAt;
   updatedAt: GeneratedTimestamp;
   deletedAt: Timestamp | null;
+}
+
+// One row per submitted selfie (migration 0011). All of a participant's
+// selfies describe the same person; matching searches with each embedding and
+// keeps the best distance per face.
+export interface ParticipantSelfieTable {
+  id: Generated<string>;
+  participantId: string;
+  ordinal: number;
+  storageKey: string;
+  // NULL until embedded, or permanently if this photo had no detectable face.
+  embedding: string | null;
+  createdAt: CreatedAt;
 }
 
 export interface ParticipantMatchTable {
@@ -292,6 +311,22 @@ export interface EmailLogTable {
   statusAt: Timestamp | null;
 }
 
+// Support messages (migration 0010). orgId/userId are null for public
+// submissions, which instead carry a free-text name/email.
+export interface SupportTicketTable {
+  id: Generated<string>;
+  source: SupportSource;
+  orgId: string | null;
+  userId: string | null;
+  eventId: string | null;
+  name: string | null;
+  email: string | null;
+  message: string;
+  status: Generated<SupportStatus>;
+  createdAt: CreatedAt;
+  resolvedAt: Timestamp | null;
+}
+
 export interface SystemConfigTable {
   key: string;
   value: unknown;
@@ -311,11 +346,13 @@ export interface DB {
   smartSearch: SmartSearchTable;
   person: PersonTable;
   participant: ParticipantTable;
+  participantSelfie: ParticipantSelfieTable;
   participantMatch: ParticipantMatchTable;
   cloudAccount: CloudAccountTable;
   importJob: ImportJobTable;
   importItem: ImportItemTable;
   emailLog: EmailLogTable;
+  supportTicket: SupportTicketTable;
   systemConfig: SystemConfigTable;
 }
 

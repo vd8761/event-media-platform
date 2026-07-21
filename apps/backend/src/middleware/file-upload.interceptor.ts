@@ -16,6 +16,9 @@ import { LoggingRepository } from 'src/repositories/logging.repository';
 
 export const ASSET_UPLOAD_FIELD = 'assetData';
 export const SELFIE_UPLOAD_FIELD = 'selfie';
+// A participant may submit up to three photos of themselves; all are treated
+// as the same person (migration 0011).
+export const MAX_SELFIES = 3;
 
 // image/* and video/* only; the selfie field additionally rejects video in
 // the public service (docs/plan/07 §2)
@@ -58,14 +61,27 @@ export class FileUploadInterceptor implements NestInterceptor {
     });
     this.handler = instance.fields([
       { name: ASSET_UPLOAD_FIELD, maxCount: 1 },
-      { name: SELFIE_UPLOAD_FIELD, maxCount: 1 },
+      { name: SELFIE_UPLOAD_FIELD, maxCount: MAX_SELFIES },
     ]);
   }
 
   async intercept(context: ExecutionContext, next: CallHandler<any>): Promise<Observable<any>> {
     const http = context.switchToHttp();
     await new Promise<void>((resolve, reject) => {
-      const done: NextFunction = (error) => (error ? reject(transformException(error)) : resolve());
+      const done: NextFunction = (error) => {
+        if (!error) {
+          return resolve();
+        }
+        // multer reports a busted maxCount as "Unexpected field", which tells
+        // an API caller nothing about what the actual limit is.
+        if ((error as { code?: string }).code === 'LIMIT_UNEXPECTED_FILE') {
+          const field = (error as { field?: string }).field;
+          if (field === SELFIE_UPLOAD_FIELD) {
+            return reject(new BadRequestException(`Please submit at most ${MAX_SELFIES} photos`));
+          }
+        }
+        reject(transformException(error));
+      };
       this.handler(http.getRequest(), http.getResponse<Response>(), done);
     });
     return next.handle();
@@ -119,6 +135,21 @@ export class FileUploadInterceptor implements NestInterceptor {
 }
 
 // multer .fields() stores results on request.files[field][0]; surface it typed.
+// Every file staged under a field, in submission order.
+export function getStagedUploads(request: Request, field: string): StagedUpload[] {
+  const files = (request as unknown as { files?: Record<string, (Express.Multer.File & Partial<StagedUpload>)[]> })
+    .files;
+  return (files?.[field] ?? [])
+    .filter((file) => file.stagingPath)
+    .map((file) => ({
+      stagingPath: file.stagingPath!,
+      originalFilename: file.originalFilename ?? file.originalname,
+      mimeType: file.mimeType ?? file.mimetype,
+      size: file.size,
+      checksum: file.checksum!,
+    }));
+}
+
 export function getStagedUpload(
   request: Request,
   field: string = ASSET_UPLOAD_FIELD,

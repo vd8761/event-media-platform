@@ -11,6 +11,8 @@ import * as m0006 from 'src/migrations/0006-email-delivery-status';
 import * as m0007 from 'src/migrations/0007-event-expiration';
 import * as m0008 from 'src/migrations/0008-event-cover';
 import * as m0009 from 'src/migrations/0009-smart-search';
+import * as m0010 from 'src/migrations/0010-support-ticket';
+import * as m0011 from 'src/migrations/0011-multi-selfie';
 
 const migrations: Record<string, Migration> = {
   '0001-init': m0001,
@@ -22,6 +24,8 @@ const migrations: Record<string, Migration> = {
   '0007-event-expiration': m0007,
   '0008-event-cover': m0008,
   '0009-smart-search': m0009,
+  '0010-support-ticket': m0010,
+  '0011-multi-selfie': m0011,
 };
 
 export class StaticMigrationProvider implements MigrationProvider {

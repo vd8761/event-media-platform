@@ -5,6 +5,7 @@
   import type { AssetDetail } from '$lib/api';
   import FaceBoxes, { type FaceBox } from '$lib/components/FaceBoxes.svelte';
   import PhotoEditor from '$lib/components/PhotoEditor.svelte';
+  import VideoViewer from '$lib/components/VideoViewer.svelte';
   import { ContextMenuButton, Icon, IconButton, MenuItemType, type MenuItems } from '@immich/ui';
   import {
     mdiAlertCircleOutline,
@@ -50,6 +51,8 @@
     thumbhash: string | null;
     thumbUrl: string | null;
     previewUrl: string | null;
+    /** 'image' | 'video'. Absent is treated as an image. */
+    type?: string;
     facesDetectedAt?: string | null;
     faceCount?: number;
   }
@@ -114,6 +117,7 @@
 
   const filename = $derived(assets[index]?.originalFilename ?? 'photo.jpg');
   const asset = $derived(assets[index]);
+  const isVideo = $derived(asset?.type === 'video');
 
   let showInfo = $state(false);
   let showFaces = $state(true);
@@ -709,7 +713,19 @@
           </button>
         {/if}
 
-        {#if asset.previewUrl}
+        {#if isVideo}
+          <!-- Videos get the ported media-chrome player instead of the zoom/pan
+               image stage: panning a playing video is meaningless, and the
+               control bar needs the full frame. Keyed so moving between clips
+               tears down the old element rather than reusing a playing one. -->
+          {#key asset.id}
+            <VideoViewer
+              src={downloadUrl(asset.id)}
+              poster={asset.previewUrl}
+              onEnded={() => (index < assets.length - 1 ? next() : undefined)}
+            />
+          {/key}
+        {:else if asset.previewUrl}
           <!-- Thumbhash backdrop while the full preview decodes — no spinner,
                so a change reads as a smooth crossfade the way Immich's does. -->
           {#if placeholder && !imageLoaded}

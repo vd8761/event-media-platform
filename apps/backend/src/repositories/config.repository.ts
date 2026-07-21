@@ -69,6 +69,8 @@ export interface EnvData {
   email: {
     provider: EmailProvider;
     from: string;
+    // Support inbox for Help-dialog submissions; undefined disables the mail.
+    supportTo?: string;
     resend: { apiKey?: string };
     webhookSecret?: string;
     smtp: {
@@ -191,6 +193,7 @@ const resolveEmail = (dto: EnvDto): EnvData['email'] => {
   return {
     provider,
     from: dto.EMAIL_FROM || dto.SMTP_FROM || 'EventLens <noreply@eventlens.local>',
+    supportTo: dto.EL_SUPPORT_EMAIL,
     resend: { apiKey: dto.RESEND_API_KEY },
     webhookSecret: dto.RESEND_WEBHOOK_SECRET,
     smtp: {

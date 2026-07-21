@@ -1,43 +1,69 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { api, ApiError, asExpiredEvent, type ExpiredEventInfo } from '$lib/api';
-  import { Alert, Button, Heading, Input, LoadingSpinner } from '@immich/ui';
-  import { mdiCameraOutline } from '@mdi/js';
+  import PublicTopBar from '$lib/components/PublicTopBar.svelte';
+  import { Alert, Button, Input, LoadingSpinner } from '@immich/ui';
+  import { mdiCameraOutline, mdiClose } from '@mdi/js';
   import { Icon } from '@immich/ui';
   import { DateTime } from 'luxon';
   import { onMount } from 'svelte';
 
   const slug = page.params.slug!;
 
-  let event = $state<{ name: string; description: string | null; startsAt: string | null } | null>(null);
+  // Matching quality improves with more angles, so up to three photos are
+  // accepted and treated as the same person.
+  const MAX_SELFIES = 3;
+
+  let event = $state<{
+    organization: { name: string | null };
+    id: string;
+    name: string;
+    description: string | null;
+    startsAt: string | null;
+  } | null>(null);
   let notFound = $state(false);
   let expired = $state<ExpiredEventInfo | null>(null);
 
   let email = $state('');
   // required: it becomes the label on this person's face in every photo
   let name = $state('');
-  let selfie = $state<File | null>(null);
-  let previewUrl = $state('');
+  let phone = $state('');
+  let selfies = $state<{ file: File; previewUrl: string }[]>([]);
   let submitting = $state(false);
   let submitted = $state(false);
   let error = $state('');
   let fileInput = $state<HTMLInputElement | null>(null);
 
-  function onFilePicked(list: FileList | null) {
-    const file = list?.[0];
-    if (!file) return;
-    selfie = file;
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    previewUrl = URL.createObjectURL(file);
+  function onFilesPicked(list: FileList | null) {
+    if (!list) return;
+    // Silently cap rather than erroring: the picker allows multi-select, and
+    // rejecting the whole batch for one photo too many is needless friction.
+    const room = MAX_SELFIES - selfies.length;
+    for (const file of [...list].slice(0, room)) {
+      selfies = [...selfies, { file, previewUrl: URL.createObjectURL(file) }];
+    }
+    if (fileInput) fileInput.value = '';
   }
+
+  function removeSelfie(index: number) {
+    URL.revokeObjectURL(selfies[index].previewUrl);
+    selfies = selfies.filter((_, i) => i !== index);
+  }
+
+  const canSubmit = $derived(!submitting && selfies.length > 0 && !!email && name.trim().length > 0);
 
   async function submit(eventForm: SubmitEvent) {
     eventForm.preventDefault();
-    if (!selfie || !name.trim()) return;
+    if (!canSubmit) return;
     error = '';
     submitting = true;
     try {
-      await api.public.submitSelfie(slug, email, name.trim(), selfie);
+      await api.public.submitSelfie(slug, {
+        email,
+        name: name.trim(),
+        phone: phone.trim() || undefined,
+        selfies: selfies.map((entry) => entry.file),
+      });
       submitted = true;
     } catch (err) {
       error =
@@ -65,7 +91,9 @@
 
 <svelte:head><title>{event?.name ?? 'Event'} — EventLens</title></svelte:head>
 
-<div class="flex min-h-screen items-center justify-center bg-immich-bg p-4">
+<PublicTopBar orgName={event?.organization.name ?? null} eventName={event?.name ?? null} eventId={event?.id} />
+
+<div class="flex min-h-[calc(100vh-4rem)] items-center justify-center bg-immich-bg p-4">
   {#if expired}
     <div class="md-surface w-full max-w-md p-8 text-center">
       <p class="md-title-large mb-2">{expired.eventName} has closed</p>
@@ -111,51 +139,77 @@
             <label for="email" class="immich-form-label mb-1.5 block">Email</label>
             <Input id="email" type="email" bind:value={email} required autocomplete="email" placeholder="you@example.com" />
           </div>
+          <div>
+            <label for="phone" class="immich-form-label mb-1.5 block">Phone number</label>
+            <Input id="phone" type="tel" bind:value={phone} autocomplete="tel" placeholder="+44 7700 900123" />
+            <p class="md-label-medium mt-1.5 text-gray-400">Optional — so the organiser can reach you if your email bounces.</p>
+          </div>
 
           <input
             bind:this={fileInput}
             type="file"
             accept="image/*"
             capture="user"
+            multiple
             class="hidden"
-            onchange={(event) => onFilePicked(event.currentTarget.files)}
+            onchange={(event) => onFilesPicked(event.currentTarget.files)}
           />
 
-          {#if previewUrl}
-            <div class="text-center">
-              <img src={previewUrl} alt="Selfie preview" class="mx-auto h-40 w-40 rounded-full object-cover shadow" />
+          <div>
+            <span class="immich-form-label mb-1.5 block">Your photos ({selfies.length}/{MAX_SELFIES})</span>
+
+            {#if selfies.length > 0}
+              <div class="mb-3 flex flex-wrap justify-center gap-3">
+                {#each selfies as entry, index (entry.previewUrl)}
+                  <div class="relative">
+                    <img
+                      src={entry.previewUrl}
+                      alt="Selfie {index + 1}"
+                      class="size-28 rounded-2xl object-cover shadow"
+                    />
+                    <button
+                      type="button"
+                      aria-label="Remove photo {index + 1}"
+                      class="absolute -end-2 -top-2 flex size-7 items-center justify-center rounded-full bg-black/70 text-white"
+                      onclick={() => removeSelfie(index)}
+                    >
+                      <Icon icon={mdiClose} size="1rem" />
+                    </button>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
+            {#if selfies.length < MAX_SELFIES}
               <button
                 type="button"
-                class="md-label-large text-immich-primary mt-3 min-h-11 px-4 underline"
+                class="hover:border-immich-primary hover:text-immich-primary flex w-full flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-gray-300 py-8 text-gray-500 transition"
                 onclick={() => fileInput?.click()}
               >
-                Retake
+                <Icon icon={mdiCameraOutline} size="2.75rem" />
+                <span class="md-label-large">
+                  {selfies.length === 0 ? 'Take or choose a selfie' : 'Add another photo'}
+                </span>
               </button>
-            </div>
-          {:else}
-            <button
-              type="button"
-              class="hover:border-immich-primary hover:text-immich-primary flex min-h-40 flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-gray-300 py-10 text-gray-500 transition"
-              onclick={() => fileInput?.click()}
-            >
-              <Icon icon={mdiCameraOutline} size="2.75rem" />
-              <span class="md-label-large">Take or choose a selfie</span>
-            </button>
-          {/if}
+            {/if}
 
-          <Button
-            type="submit"
-            size="large"
-            fullWidth
-            disabled={submitting || !selfie || !email || !name.trim()}
-            loading={submitting}
-          >
+            <!-- Stated plainly and framed around accuracy: a group photo gives
+                 us more than one face to choose from, and the wrong choice
+                 sends someone else's photos to this person. -->
+            <p class="md-label-medium mt-2 leading-relaxed text-gray-400">
+              Please upload photos of <strong>just you</strong> — no other people in the frame. Anyone else in the
+              picture makes it harder to tell which face is yours, and up to {MAX_SELFIES} photos from different angles
+              gives us the most accurate match.
+            </p>
+          </div>
+
+          <Button type="submit" size="large" fullWidth disabled={!canSubmit} loading={submitting}>
             Find my photos
           </Button>
 
           <p class="md-label-medium text-center leading-relaxed text-gray-400">
-            Your selfie is used only to find your photos at this event and is deleted after the event ends. You'll
-            receive a private gallery link by email.
+            Your photos are used only to find you at this event and are deleted after the event ends. You'll receive a
+            private gallery link by email.
           </p>
         </form>
       {/if}

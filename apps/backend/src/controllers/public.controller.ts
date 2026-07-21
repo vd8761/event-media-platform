@@ -16,7 +16,7 @@ import {
 import { ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { createZodDto } from 'nestjs-zod';
-import { FileUploadInterceptor, SELFIE_UPLOAD_FIELD, getStagedUpload } from 'src/middleware/file-upload.interceptor';
+import { FileUploadInterceptor, SELFIE_UPLOAD_FIELD, getStagedUploads } from 'src/middleware/file-upload.interceptor';
 import { PublicService } from 'src/services/public.service';
 import { z } from 'zod';
 
@@ -25,6 +25,9 @@ export class SubmitSelfieDto extends createZodDto(
     email: z.string().email().max(320),
     // required: it labels their face for everyone viewing the photos
     name: z.string().trim().min(1).max(200),
+    // Optional fallback contact when an email bounces. Kept loose on purpose —
+    // international formats vary too much to validate usefully here.
+    phone: z.string().trim().min(4).max(32).optional(),
   }),
 ) {}
 
@@ -62,7 +65,8 @@ export class PublicController {
       slug,
       dto.email,
       dto.name,
-      getStagedUpload(request, SELFIE_UPLOAD_FIELD),
+      dto.phone,
+      getStagedUploads(request, SELFIE_UPLOAD_FIELD),
       request.ip ?? '',
     );
   }
