@@ -116,8 +116,24 @@ export class PersonRepository {
     return rows.map((row) => ({ personId: row.personId, name: row.name, faces: Number(row.faces) }));
   }
 
-  // Give an unnamed cluster the name of the participant who claimed most of its
-  // faces, and return that name (null when nothing was named).
+  // Every cluster that at least one guest has claimed. The backfill walks these
+  // rather than all persons: naming is a no-op for a cluster nobody claimed, so
+  // this keeps the sweep proportional to the guests rather than to the photos.
+  async getClaimedPersonIds(): Promise<{ personId: string; eventId: string }[]> {
+    return this.db
+      .selectFrom('person')
+      .innerJoin('assetFace', 'assetFace.personId', 'person.id')
+      .innerJoin('participantMatch', 'participantMatch.viaFaceId', 'assetFace.id')
+      .innerJoin('participant', 'participant.id', 'participantMatch.participantId')
+      .where('participant.deletedAt', 'is', null)
+      .where('participant.name', '!=', '')
+      .select(['person.id as personId', 'person.eventId as eventId'])
+      .groupBy(['person.id', 'person.eventId'])
+      .execute();
+  }
+
+  // Apply the most recent guest claim to a cluster's name. Returns the name
+  // written, or null when nothing changed.
   //
   // The reverse direction of getPersonsForFaces: that one starts from a
   // participant's matched faces and asks which cluster they are, which only
@@ -127,39 +143,55 @@ export class PersonRepository {
   // from the cluster side, at the moment a face joins it, so the ordering of
   // the two pipelines stops mattering.
   //
-  // Deliberately one statement: the `name = ''` predicate and the write happen
-  // together, so a concurrent rename by the organiser is never clobbered — one
-  // of the two updates simply matches nothing. `''` (the column default) is the
-  // only value treated as unnamed; a name set by anyone wins permanently.
+  // Last write wins between the organiser and the guest, which is why the
+  // comparison is against `name_set_at` rather than "is it still unnamed".
+  // Without the timestamp this would fire again on every new face joining the
+  // cluster and silently undo an organiser's correction with the same stale
+  // claim. Comparing the claim's own creation time to when the name was last
+  // set makes "last" mean the order the two humans actually acted in, not the
+  // order the jobs happened to run.
+  //
+  // Still one statement: the predicate and the write happen together, so a
+  // rename landing at the same instant either wins outright or is overwritten
+  // by a genuinely newer claim — never a torn read of the two.
   async nameFromParticipants(eventId: string, personId: string): Promise<string | null> {
-    const winner = this.db
+    // The latest claim on this cluster: newest first, so "last to add" wins
+    // between two guests as well as between a guest and the organiser.
+    const latest = this.db
       .selectFrom('assetFace')
       .innerJoin('participantMatch', 'participantMatch.viaFaceId', 'assetFace.id')
       .innerJoin('participant', 'participant.id', 'participantMatch.participantId')
       .where('assetFace.personId', '=', personId)
       .where('participant.deletedAt', 'is', null)
-      .where('participant.name', 'is not', null)
       .where('participant.name', '!=', '')
-      // One column only — this is used as a scalar subquery below.
-      .select('participant.name as name')
-      .groupBy('participant.name')
-      // Most claimed faces wins. Two participants can match one cluster when a
-      // face is genuinely ambiguous; the better-supported claim is the safer
-      // guess, and the organiser can always correct it.
-      .orderBy(sql`count(*)`, 'desc')
-      // Ties would otherwise resolve at random and flip between runs.
+      .orderBy('participantMatch.createdAt', 'desc')
+      // A tiebreak that does not depend on row order, for claims sharing a
+      // timestamp — otherwise the winner flips between runs.
       .orderBy('participant.name', 'asc')
       .limit(1);
 
+    // Two scalar subqueries over the same rows: SQL has no way to return two
+    // columns from one scalar, and splitting them keeps the whole decision
+    // inside the single UPDATE.
+    const latestName = latest.select('participant.name as name');
+    const latestAt = latest.select('participantMatch.createdAt as at');
+
     const updated = await this.db
       .updateTable('person')
-      .set({ name: sql<string>`(${winner})`, updatedAt: new Date() })
+      .set({
+        name: sql<string>`(${latestName})`,
+        nameSetAt: sql<Date>`(${latestAt})`,
+        nameSource: 'participant',
+        updatedAt: new Date(),
+      })
       .where('id', '=', personId)
       .where('eventId', '=', eventId)
-      .where('name', '=', '')
       // Without this the update writes NULL into a NOT NULL column when no
       // participant has claimed the cluster yet.
-      .where(sql`(${winner})`, 'is not', null)
+      .where(sql`(${latestName})`, 'is not', null)
+      // Never overwrite a newer name. A null name_set_at means nobody has named
+      // this cluster (or it predates migration 0014), so any claim beats it.
+      .where(sql<boolean>`person.name_set_at is null or person.name_set_at < (${latestAt})`)
       .returning('name')
       .executeTakeFirst();
 
@@ -167,9 +199,15 @@ export class PersonRepository {
   }
 
   update(eventId: string, personId: string, dto: Partial<{ name: string; isHidden: boolean; thumbnailKey: string; faceAssetFaceId: string | null }>): Promise<Person> {
+    // Stamping the rename is what keeps last-write-wins honest: an organiser's
+    // name with no name_set_at looks older than every claim, so the next face
+    // to join the cluster would quietly revert it.
+    const provenance =
+      dto.name === undefined ? {} : { nameSetAt: new Date(), nameSource: 'organiser' };
+
     return this.db
       .updateTable('person')
-      .set({ ...dto, updatedAt: new Date() })
+      .set({ ...dto, ...provenance, updatedAt: new Date() })
       .where('id', '=', personId)
       .where('eventId', '=', eventId)
       .returningAll()

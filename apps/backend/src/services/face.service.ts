@@ -356,6 +356,34 @@ export class FaceService {
     return JobStatus.Success;
   }
 
+  // One-off catch-up for clusters that were already formed before naming from
+  // claims existed. Clustering never re-runs for a settled face, so those
+  // clusters would otherwise stay unnamed forever even though the guest had
+  // claimed them.
+  //
+  // Safe to run repeatedly: nameFromParticipants applies the same
+  // last-write-wins comparison per cluster, so a name the organiser has since
+  // corrected is left alone unless a newer claim genuinely exists.
+  @OnJob({ name: JobName.PersonNameBackfill, queue: QueueName.Background })
+  async handlePersonNameBackfill(): Promise<JobStatus> {
+    const clusters = await this.personRepository.getClaimedPersonIds();
+    let named = 0;
+
+    for (const cluster of clusters) {
+      try {
+        if (await this.personRepository.nameFromParticipants(cluster.eventId, cluster.personId)) {
+          named += 1;
+        }
+      } catch (error) {
+        // One bad cluster must not abandon the rest of the sweep.
+        this.logger.warn(`Backfill could not name person ${cluster.personId}: ${error}`);
+      }
+    }
+
+    this.logger.log(`Name backfill: named ${named} of ${clusters.length} claimed clusters`);
+    return JobStatus.Success;
+  }
+
   // --- Stage C: person thumbnail (port of handleGeneratePersonThumbnail ~line 408) ---
   // Deviation: crops from the PREVIEW derivative (detection also ran on the
   // preview, so face boxes map 1:1); Immich re-decodes the original.

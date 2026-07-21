@@ -28,6 +28,7 @@ export interface JobPayloads {
   [JobName.SessionCleanup]: Record<string, never>;
   [JobName.StorageReconcile]: Record<string, never>;
   [JobName.PersonCleanup]: Record<string, never>;
+  [JobName.PersonNameBackfill]: Record<string, never>;
   [JobName.SendEventExpiry]: { eventId: string };
   [JobName.EventExpirySweep]: Record<string, never>;
   [JobName.EventPurgeSweep]: Record<string, never>;

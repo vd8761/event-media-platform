@@ -79,8 +79,15 @@ const QUEUE_INFO: Record<QueueName, { label: string; description: string; jobs: 
   },
   [QueueName.Background]: {
     label: 'Maintenance',
-    description: 'Nightly staging sweep, session cleanup, storage reconciliation and person cleanup.',
-    jobs: [JobName.StagingSweep, JobName.SessionCleanup, JobName.StorageReconcile, JobName.PersonCleanup],
+    description:
+      'Nightly staging sweep, session cleanup, storage reconciliation, person cleanup, and the one-off name backfill for clusters formed before guests could name them.',
+    jobs: [
+      JobName.StagingSweep,
+      JobName.SessionCleanup,
+      JobName.StorageReconcile,
+      JobName.PersonCleanup,
+      JobName.PersonNameBackfill,
+    ],
   },
 };
 

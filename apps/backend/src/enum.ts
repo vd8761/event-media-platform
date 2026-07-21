@@ -49,6 +49,7 @@ export enum JobName {
   SessionCleanup = 'SessionCleanup',
   StorageReconcile = 'StorageReconcile',
   PersonCleanup = 'PersonCleanup',
+  PersonNameBackfill = 'PersonNameBackfill',
   SendEventExpiry = 'SendEventExpiry',
   EventExpirySweep = 'EventExpirySweep',
   EventPurgeSweep = 'EventPurgeSweep',

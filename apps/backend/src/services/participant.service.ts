@@ -140,8 +140,8 @@ export class ParticipantService {
   //
   // Two rules hold regardless:
   //
-  //  - An already-named person is left alone. The organiser may have named them
-  //    by hand, and a guest's self-reported name must not overwrite that.
+  //  - Last write wins against the organiser, decided on when each side acted
+  //    rather than which code path ran last — see nameFromParticipants.
   //  - Failures are swallowed. This is a nicety on top of matching; it must
   //    never fail a selfie that otherwise worked.
   //
@@ -157,9 +157,9 @@ export class ParticipantService {
     try {
       const clusters = await this.personRepository.getPersonsForFaces(faceIds);
       for (const cluster of clusters) {
-        if (cluster.name) {
-          continue;
-        }
+        // No `if (cluster.name) continue` here: an already-named cluster is
+        // exactly the case last-write-wins has to decide, and the timestamp
+        // comparison inside nameFromParticipants is what decides it.
         const named = await this.personRepository.nameFromParticipants(participant.eventId, cluster.personId);
         if (named) {
           this.logger.log(`Named person ${cluster.personId} "${named}" from participant ${participant.id}`);

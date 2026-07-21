@@ -198,6 +198,11 @@ export interface PersonTable {
   eventId: string;
   orgId: string;
   name: Generated<string>;
+  // When the name was last set, and by whom ('organiser' | 'participant').
+  // Null until someone names them; see migration 0014 for why the timestamp is
+  // required to make last-write-wins actually mean last.
+  nameSetAt: Date | null;
+  nameSource: Generated<string>;
   faceAssetFaceId: string | null;
   thumbnailKey: Generated<string>;
   isHidden: Generated<boolean>;

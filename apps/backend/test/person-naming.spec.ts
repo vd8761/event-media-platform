@@ -161,16 +161,75 @@ describe('naming a cluster from the guest who claimed it', () => {
     expect(person?.name).toBe('Priya');
   });
 
-  it('leaves a cluster the organiser already named alone', async () => {
-    // A guest's self-reported name must never overwrite a deliberate one.
+  it('lets a newer guest claim override the organiser', async () => {
+    // Last write wins: the guest claimed after the organiser typed a name.
     const personId = await makePerson('Organiser Choice');
+    await db
+      .updateTable('person')
+      .set({ nameSetAt: new Date(Date.now() - 60_000), nameSource: 'organiser' })
+      .where('id', '=', personId)
+      .execute();
     const faceId = await makeFace(personId);
     await claim('priya@example.com', 'Priya', [faceId]);
 
+    await expect(personRepository.nameFromParticipants(eventId, personId)).resolves.toBe('Priya');
+  });
+
+  it('keeps an organiser rename that came after the claim', async () => {
+    // The case that makes the timestamp necessary. Naming runs again every
+    // time a new face joins the cluster; without comparing times, that stale
+    // claim would silently undo the organiser's correction on the next photo.
+    const personId = await makePerson();
+    const faceId = await makeFace(personId);
+    await claim('priya@example.com', 'Priya', [faceId]);
+
+    // The organiser corrects it afterwards, through the normal update path.
+    await personRepository.update(eventId, personId, { name: 'Priya Sharma' });
+
+    // A later photo of the same person lands and clustering names again.
+    await makeFace(personId);
     await expect(personRepository.nameFromParticipants(eventId, personId)).resolves.toBeNull();
 
     const person = await db.selectFrom('person').select('name').where('id', '=', personId).executeTakeFirst();
-    expect(person?.name).toBe('Organiser Choice');
+    expect(person?.name).toBe('Priya Sharma');
+  });
+
+  it('records who named the cluster', async () => {
+    // Provenance is what lets the UI explain a name the organiser did not type.
+    const personId = await makePerson();
+    const faceId = await makeFace(personId);
+    await claim('priya@example.com', 'Priya', [faceId]);
+    await personRepository.nameFromParticipants(eventId, personId);
+
+    const claimed = await db
+      .selectFrom('person')
+      .select(['nameSource', 'nameSetAt'])
+      .where('id', '=', personId)
+      .executeTakeFirst();
+    expect(claimed?.nameSource).toBe('participant');
+    expect(claimed?.nameSetAt).not.toBeNull();
+
+    await personRepository.update(eventId, personId, { name: 'By Hand' });
+    const renamed = await db
+      .selectFrom('person')
+      .select('nameSource')
+      .where('id', '=', personId)
+      .executeTakeFirst();
+    expect(renamed?.nameSource).toBe('organiser');
+  });
+
+  it('does not stamp provenance when renaming is not what happened', async () => {
+    // update() is shared with hide/thumbnail edits; those must not look like a
+    // rename, or they would win the last-write-wins comparison for free.
+    const personId = await makePerson();
+    await personRepository.update(eventId, personId, { isHidden: true });
+
+    const person = await db
+      .selectFrom('person')
+      .select('nameSetAt')
+      .where('id', '=', personId)
+      .executeTakeFirst();
+    expect(person?.nameSetAt).toBeNull();
   });
 
   it('does nothing when nobody has claimed the cluster', async () => {
@@ -196,15 +255,17 @@ describe('naming a cluster from the guest who claimed it', () => {
     expect(person?.name).toBe('');
   });
 
-  it('picks the guest who claimed the most faces in the cluster', async () => {
-    // Clustering is imperfect, so a stranger can match loosely on one face.
-    // They must not out-vote the guest who owns the rest of the cluster.
+  it('takes the most recent claim when two guests claim one cluster', async () => {
+    // Last write wins applies between guests too, not just guest vs organiser.
+    // Note this means a stranger who matches loosely can rename a cluster; the
+    // organiser correcting it afterwards is the intended recovery, and their
+    // rename is newer so it holds.
     const personId = await makePerson();
     const faces = [await makeFace(personId), await makeFace(personId), await makeFace(personId)];
     await claim('priya@example.com', 'Priya', faces.slice(0, 2));
-    await claim('stranger@example.com', 'Stranger', faces.slice(2));
+    await claim('later@example.com', 'Later Guest', faces.slice(2));
 
-    await expect(personRepository.nameFromParticipants(eventId, personId)).resolves.toBe('Priya');
+    await expect(personRepository.nameFromParticipants(eventId, personId)).resolves.toBe('Later Guest');
   });
 
   it('ignores faces belonging to other clusters', async () => {
@@ -230,6 +291,18 @@ describe('naming a cluster from the guest who claimed it', () => {
       .execute();
 
     await expect(personRepository.nameFromParticipants(eventId, personId)).resolves.toBeNull();
+  });
+
+  it('lists only clusters a named guest has actually claimed', async () => {
+    // What the backfill walks. Including unclaimed clusters would make the
+    // sweep scale with the photo library instead of with the guests.
+    const claimed = await makePerson();
+    const unclaimed = await makePerson();
+    await makeFace(unclaimed);
+    await claim('priya@example.com', 'Priya', [await makeFace(claimed)]);
+
+    const ids = (await personRepository.getClaimedPersonIds()).map((row) => row.personId);
+    expect(ids).toEqual([claimed]);
   });
 
   it('will not name a cluster belonging to another event', async () => {
