@@ -49,6 +49,23 @@
   // Per-photo face-detection state — "what is running and what is not".
   type Tab = 'pending' | 'found' | 'none';
   let tab = $state<Tab>('pending');
+  // Named people first, then by how many photos they appear in. Someone the
+  // organiser has already identified is who they are looking for; among the
+  // rest, the biggest clusters are the ones worth naming next.
+  const sortedPeople = $derived(
+    [...people].sort((a, b) => {
+      const aNamed = a.name ? 1 : 0;
+      const bNamed = b.name ? 1 : 0;
+      if (aNamed !== bNamed) {
+        return bNamed - aNamed;
+      }
+      if (aNamed === 1) {
+        return a.name.localeCompare(b.name);
+      }
+      return b.faceCount - a.faceCount;
+    }),
+  );
+
   let photos = $state<AssetItem[]>([]);
   let photosLoading = $state(false);
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -209,8 +226,10 @@
       {/if}
     </div>
   {:else}
-    <div class="mb-8 grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-4">
-      {#each people as person (person.id)}
+    <!-- Tighter tiles than before (9rem was portrait-sized); these are for
+         picking someone out, not admiring. -->
+    <div class="mb-8 grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-3">
+      {#each sortedPeople as person (person.id)}
         {@const isPicked = picked.has(person.id)}
         <div class="group relative text-center {person.isHidden ? 'opacity-40' : ''}">
           {#if merging}
@@ -238,7 +257,9 @@
                   </span>
                 {/if}
               </div>
-              <p class="md-title-small mt-2 truncate">{person.name || 'Unnamed'}</p>
+              <p class="md-title-small mt-2 truncate">
+                {#if person.name}{person.name}{:else}<span class="text-gray-400">Add a name</span>{/if}
+              </p>
               <p class="md-label-medium text-gray-500">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
             </button>
           {:else}
@@ -257,7 +278,9 @@
                   <LoadingSpinner />
                 </div>
               {/if}
-              <p class="md-title-small mt-2 truncate">{person.name || 'Unnamed'}</p>
+              <p class="md-title-small mt-2 truncate">
+                {#if person.name}{person.name}{:else}<span class="text-gray-400">Add a name</span>{/if}
+              </p>
               <p class="md-label-medium text-gray-500">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
             </a>
             {#if canManage}
@@ -367,7 +390,9 @@
             {:else}
               <div class="flex h-20 w-20 items-center justify-center rounded-full bg-gray-100"><LoadingSpinner /></div>
             {/if}
-            <p class="mt-1 truncate text-xs font-medium">{person.name || 'Unnamed'}</p>
+            <p class="mt-1 truncate text-xs font-medium">
+              {#if person.name}{person.name}{:else}<span class="text-gray-400">Add a name</span>{/if}
+            </p>
             <p class="text-[11px] text-gray-400">{person.faceCount}</p>
           </button>
         {/each}

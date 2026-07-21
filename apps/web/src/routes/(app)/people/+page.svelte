@@ -24,11 +24,37 @@
     }
   });
 
+  // Unnamed people are hidden. Face clustering produces a long tail of one-off
+  // groups — a stranger in the background of one photo — and showing them all
+  // buries the handful of people who actually matter. They are still reachable
+  // from inside an event, which is where naming happens.
+  const named = $derived(people.filter((person) => person.name));
+
   const filtered = $derived(
     query.trim()
-      ? people.filter((person) => (person.name ?? '').toLowerCase().includes(query.trim().toLowerCase()))
-      : people,
+      ? named.filter((person) => (person.name ?? '').toLowerCase().includes(query.trim().toLowerCase()))
+      : named,
   );
+
+  // Grouped by event, events alphabetical, people alphabetical within each.
+  // A flat name-sorted list mixes events together, and the same person appears
+  // once per event they were detected in — which reads as duplicates.
+  const groups = $derived.by(() => {
+    const byEvent = new Map<string, { eventId: string; eventName: string; people: OrgPerson[] }>();
+    for (const person of filtered) {
+      const group = byEvent.get(person.eventId) ?? {
+        eventId: person.eventId,
+        eventName: person.eventName,
+        people: [],
+      };
+      group.people.push(person);
+      byEvent.set(person.eventId, group);
+    }
+    for (const group of byEvent.values()) {
+      group.people.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+    }
+    return [...byEvent.values()].sort((a, b) => a.eventName.localeCompare(b.eventName));
+  });
 
   function initials(name: string | null): string {
     if (!name) {
@@ -67,34 +93,46 @@
     </p>
   </div>
 {:else}
-  <div class="grid grid-cols-3 gap-x-4 gap-y-6 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8">
-    {#each filtered as person (person.id)}
-      <button
-        type="button"
-        onclick={() => goto(`/events/${person.eventId}/people/${person.id}`)}
-        title="{person.name ?? 'Unnamed'} · {person.eventName}"
-        class="group flex flex-col items-center gap-2 text-center"
-      >
-        <div
-          class="relative aspect-square w-full overflow-hidden rounded-full bg-subtle ring-1 ring-black/5 transition group-hover:ring-2 group-hover:ring-immich-primary"
-        >
-          {#if person.thumbnailUrl}
-            <img src={person.thumbnailUrl} alt="" loading="lazy" class="h-full w-full object-cover" />
-          {:else}
-            <span class="text-primary flex h-full w-full items-center justify-center text-lg font-semibold">
-              {initials(person.name)}
-            </span>
-          {/if}
-        </div>
-        <span class="w-full min-w-0">
-          <span class="block truncate text-sm font-medium {person.name ? '' : 'text-gray-400'}">
-            {person.name ?? 'Add a name'}
-          </span>
-          <span class="block truncate text-xs text-gray-500">{person.eventName}</span>
-        </span>
-      </button>
-    {:else}
-      <p class="col-span-full py-10 text-center text-sm text-gray-500">No one matches "{query}".</p>
-    {/each}
-  </div>
+  {#each groups as group (group.eventId)}
+    <section class="mb-8">
+      <h2 class="md-title-medium mb-3">{group.eventName}</h2>
+      <!-- Smaller tiles and more columns than before: these are identification
+           aids, not portraits to admire, and the old size fit barely a dozen on
+           screen. -->
+      <div class="grid grid-cols-4 gap-x-3 gap-y-5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12">
+        {#each group.people as person (person.id)}
+          <button
+            type="button"
+            onclick={() => goto(`/events/${person.eventId}/people/${person.id}`)}
+            title={person.name}
+            class="group flex flex-col items-center gap-1.5 text-center"
+          >
+            <div
+              class="relative aspect-square w-full overflow-hidden rounded-full bg-subtle ring-1 ring-black/5 transition group-hover:ring-2 group-hover:ring-immich-primary"
+            >
+              {#if person.thumbnailUrl}
+                <img src={person.thumbnailUrl} alt="" loading="lazy" class="h-full w-full object-cover" />
+              {:else}
+                <span class="text-primary flex h-full w-full items-center justify-center text-sm font-semibold">
+                  {initials(person.name)}
+                </span>
+              {/if}
+            </div>
+            <span class="block w-full truncate text-xs font-medium">{person.name}</span>
+          </button>
+        {/each}
+      </div>
+    </section>
+  {:else}
+    <div class="md-surface p-10 text-center">
+      <p class="md-title-medium mb-1">
+        {query.trim() ? `No one matches "${query}"` : 'No named people yet'}
+      </p>
+      <p class="md-body-medium text-gray-500">
+        {query.trim()
+          ? 'Try a different name.'
+          : 'Open an event and name the people you recognise — they will appear here.'}
+      </p>
+    </div>
+  {/each}
 {/if}

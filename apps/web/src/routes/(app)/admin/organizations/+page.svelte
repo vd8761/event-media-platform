@@ -204,7 +204,7 @@
       {#if error}<div class="mb-3"><Alert color="danger" title={error} /></div>{/if}
       <div class="flex flex-col gap-4">
         <div>
-          <label for="org-name" class="immich-form-label mb-1 block text-sm">Name</label>
+          <label for="org-name" class="immich-form-label mb-1 block text-sm">Organization name</label>
           <Input id="org-name" bind:value={name} oninput={() => (slug = slugify(name))} />
         </div>
         <div>
@@ -217,7 +217,7 @@
           <Input id="owner-email" type="email" bind:value={ownerEmail} />
         </div>
         <div>
-          <label for="owner-name" class="immich-form-label mb-1 block text-sm">Name</label>
+          <label for="owner-name" class="immich-form-label mb-1 block text-sm">Owner's full name</label>
           <Input id="owner-name" bind:value={ownerName} />
         </div>
         <div>

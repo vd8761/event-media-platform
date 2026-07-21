@@ -33,6 +33,12 @@ const QUEUE_ALL_PAGE_SIZE = 1000;
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
+// Multiplier on the detected face box when cropping a portrait. 1.0 is the box
+// itself; 1.8 leaves roughly half the frame as surrounding context, which is
+// about what Google Photos shows. The crop still shrinks near an image edge
+// rather than padding, so a face at the border stays centred on itself.
+const FACE_CROP_ZOOM_OUT = 1.8;
+
 @Injectable()
 export class FaceService {
   private cacheFolder: string;
@@ -346,27 +352,37 @@ export class FaceService {
       return JobStatus.Failed;
     }
 
+    // Cropped from the *original*, not the preview. A face is a small part of a
+    // group photo, so cropping it out of an already-downscaled derivative
+    // upscales a handful of pixels and the portrait comes out soft. Person
+    // thumbnails are generated once per person rather than per photo, so the
+    // extra download is bounded — unlike asset thumbnails, where the preview is
+    // the right source.
+    //
+    // Falls back to the preview if the original is missing, so an asset whose
+    // original has been purged still gets a portrait rather than none.
     const files = await this.assetRepository.getFiles(data.assetId);
     const preview = files.find((file) => file.type === AssetFileType.Preview);
-    if (!preview) {
-      this.logger.error(`Could not generate person thumbnail for ${personId}: no preview file`);
+    const sourceKey = data.originalKey ?? preview?.storageKey;
+    if (!sourceKey) {
+      this.logger.error(`Could not generate person thumbnail for ${personId}: no source image`);
       return JobStatus.Failed;
     }
 
     const workDir = join(this.cacheFolder, `person-${personId}`);
-    const previewPath = join(workDir, 'preview.jpeg');
+    const sourcePath = join(workDir, 'source.jpeg');
     const thumbPath = join(workDir, 'person.jpeg');
     try {
       await mkdir(workDir, { recursive: true });
-      await this.storageRepository.downloadToFile(preview.storageKey, previewPath);
+      await this.storageRepository.downloadToFile(sourceKey, sourcePath);
 
-      const previewDims = await this.mediaRepository.getImageDimensions(previewPath);
+      const sourceDims = await this.mediaRepository.getImageDimensions(sourcePath);
       const crop = this.getCrop(
-        { old: { width: data.imageWidth, height: data.imageHeight }, new: previewDims },
+        { old: { width: data.imageWidth, height: data.imageHeight }, new: sourceDims },
         { x1: data.boundingBoxX1, y1: data.boundingBoxY1, x2: data.boundingBoxX2, y2: data.boundingBoxY2 },
       );
 
-      await this.mediaRepository.cropToThumbnail(previewPath, crop, FACE_THUMBNAIL_SIZE, thumbPath);
+      await this.mediaRepository.cropToThumbnail(sourcePath, crop, FACE_THUMBNAIL_SIZE, thumbPath);
 
       const thumbnailKey = StorageKeys.person(data.orgId, data.eventId, personId);
       await this.storageRepository.putFile(thumbPath, thumbnailKey, 'image/jpeg');
@@ -398,8 +414,11 @@ export class FaceService {
     const middleX = Math.round(widthScale * clampedX1 + halfWidth);
     const middleY = Math.round(heightScale * clampedY1 + halfHeight);
 
-    // zoom out 10%
-    const targetHalfSize = Math.floor(Math.max(halfWidth, halfHeight) * 1.1);
+    // Zoom out so the face fills roughly half the frame, leaving head, hair and
+    // some shoulders visible. Immich's original 1.1 crops tight to the detected
+    // box, which reads as an uncomfortable close-up in a grid of portraits —
+    // the box tracks the face only, not the head.
+    const targetHalfSize = Math.floor(Math.max(halfWidth, halfHeight) * FACE_CROP_ZOOM_OUT);
 
     // get the longest distance from the center of the image without overflowing
     const newHalfSize = Math.min(

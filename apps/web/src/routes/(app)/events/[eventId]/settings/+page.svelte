@@ -14,8 +14,6 @@
   let participantPageEnabled = $state(data.event.participantPageEnabled);
   let participantsSeeAllPhotos = $state(data.event.participantsSeeAllPhotos);
   let participantsCanDownloadAll = $state(data.event.participantsCanDownloadAll);
-  let matchMaxDistance = $state(data.event.config.matchMaxDistance?.toString() ?? '');
-  let minFaces = $state(data.event.config.minFaces?.toString() ?? '');
   let error = $state('');
   let saved = $state(false);
   let saving = $state(false);
@@ -35,10 +33,6 @@
         // sending false when sharing is off keeps the two flags consistent, so
         // re-enabling sharing later never silently re-grants downloads
         participantsCanDownloadAll: participantsSeeAllPhotos && participantsCanDownloadAll,
-        config: {
-          ...(matchMaxDistance ? { matchMaxDistance: Number(matchMaxDistance) } : {}),
-          ...(minFaces ? { minFaces: Number(minFaces) } : {}),
-        },
       });
       saved = true;
       await invalidateAll();
@@ -186,22 +180,6 @@
           <Switch bind:checked={participantsCanDownloadAll} />
         </div>
       {/if}
-    </div>
-
-    <div>
-      <label for="distance" class="immich-form-label mb-1.5 block">Match distance override</label>
-      <Input id="distance" bind:value={matchMaxDistance} placeholder="default 0.5" />
-      <p class="md-label-medium mt-1.5 text-gray-500">
-        Lower (e.g. 0.45) for crowded events with false merges; leave empty for the default.
-      </p>
-    </div>
-    <div>
-      <label for="min-faces" class="immich-form-label mb-1.5 block">Photos needed to form a person</label>
-      <Input id="min-faces" bind:value={minFaces} placeholder="default 1" />
-      <p class="md-label-medium mt-1.5 text-gray-500">
-        1 means every detected face becomes a person, so nobody is missed — use Merge on the People tab to combine
-        duplicates. Raise it on very large events if single-photo people get noisy.
-      </p>
     </div>
 
     <div class="flex gap-3">

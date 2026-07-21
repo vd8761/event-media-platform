@@ -24,6 +24,9 @@ export interface PersonThumbnailData {
   imageWidth: number;
   imageHeight: number;
   assetId: string;
+  // The asset's original object key. Preferred crop source — see
+  // handlePersonThumbnail for why the preview is only a fallback.
+  originalKey: string | null;
 }
 
 @Injectable()
@@ -129,6 +132,7 @@ export class PersonRepository {
         'assetFace.imageWidth',
         'assetFace.imageHeight',
         'asset.id as assetId',
+        'asset.storageKey as originalKey',
       ])
       .where('person.id', '=', personId)
       .where('asset.deletedAt', 'is', null)
