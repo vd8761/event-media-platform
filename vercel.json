@@ -8,6 +8,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://event-media-platform-7hb6.onrender.com/api/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }

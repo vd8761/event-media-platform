@@ -356,19 +356,26 @@ The build is a static SPA (`adapter-static`), inside a pnpm workspace.
 
 The web tier takes **no environment variables**.
 
-### 7.2 The API rewrite — required
+### 7.2 The two rewrites — both required
 
-Sessions ride an `HttpOnly`, `SameSite=Lax`, `Secure` cookie and the client calls a relative `/api` path. The API must appear on the **same origin**. Commit `vercel.json` at the repo root:
+Commit `vercel.json` at the repo root. **Order matters** — Vercel takes the first match:
 
 ```json
 {
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://your-service.onrender.com/api/:path*" }
+    { "source": "/api/:path*", "destination": "https://your-service.onrender.com/api/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
 ```
 
-Without this, every request 404s. With a cross-origin URL instead, the cookie is dropped — `SameSite=Lax` is not sent on cross-site requests, and you would additionally need CORS and `SameSite=None`. Keep the rewrite.
+**The API rewrite.** Sessions ride an `HttpOnly`, `SameSite=Lax`, `Secure` cookie and the client calls a relative `/api` path, so the API must appear on the **same origin**. Without this, every API request 404s. With a cross-origin URL instead, the cookie is dropped — `SameSite=Lax` is not sent on cross-site requests, and you would additionally need CORS and `SameSite=None`.
+
+**The SPA fallback.** `adapter-static` with `fallback: 'index.html'` emits exactly one HTML file; every route is resolved by the router in the browser. So `/admin/jobs` exists in the client but not on disk, and a *direct* request for it — a refresh, a bookmark, a pasted link — finds no file and 404s.
+
+This one is easy to miss because clicking through the app works perfectly: in-app navigation never asks the server. Only a hard load fails. `vite dev` supplies its own fallback, so it cannot reproduce locally either — the first time you see it is on Vercel, on refresh.
+
+Static assets are unaffected. Vercel checks the filesystem *before* applying `rewrites`, so real files under `/_app/`, the icons, and `favicon.ico` are served directly and never reach the catch-all.
 
 ### 7.3 Close the loop
 
