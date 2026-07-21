@@ -4,6 +4,7 @@
   // TopBar so the two feel like one product: EventLens on the left, the
   // organiser's details on the right.
   import HelpDialog from '$lib/components/HelpDialog.svelte';
+  import Logo from '$lib/components/Logo.svelte';
   import { IconButton } from '@immich/ui';
   import { mdiHelpCircleOutline } from '@mdi/js';
 
@@ -23,9 +24,7 @@
 <header class="bg-immich-bg sticky top-0 z-30 h-16 w-full border-b border-gray-200">
   <div class="mx-auto flex h-full items-center justify-between gap-3 px-3 sm:px-6">
     <a href="/" class="flex shrink-0 items-center gap-2">
-      <span class="bg-primary flex size-8 items-center justify-center rounded-xl text-xs font-bold text-immich-bg">
-        EL
-      </span>
+      <Logo />
       <span class="text-primary text-lg font-semibold">EventLens</span>
     </a>
 

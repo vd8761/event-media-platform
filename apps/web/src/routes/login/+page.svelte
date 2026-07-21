@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { api, ApiError } from '$lib/api';
+  import Logo from '$lib/components/Logo.svelte';
   import { Alert, Button, Heading, Input, PasswordInput } from '@immich/ui';
 
   let email = $state('');
@@ -28,9 +29,7 @@
 <div class="flex min-h-screen items-center justify-center bg-immich-bg p-4">
   <div class="w-full max-w-md rounded-3xl border border-gray-200 p-10 shadow-sm">
     <div class="mb-8 text-center">
-      <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-immich-primary text-2xl text-immich-bg">
-        EL
-      </div>
+      <Logo class="mx-auto mb-4 size-14" />
       <Heading size="large">EventLens</Heading>
       <p class="mt-1 text-sm text-gray-500">Sign in to manage your events</p>
     </div>

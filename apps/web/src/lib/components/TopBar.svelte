@@ -6,6 +6,7 @@
   import { goto } from '$app/navigation';
   import type { Me } from '$lib/api';
   import HelpDialog from '$lib/components/HelpDialog.svelte';
+  import Logo from '$lib/components/Logo.svelte';
   import ThemeSwitcher from '$lib/components/ThemeSwitcher.svelte';
   import { formatBytes, shellStore } from '$lib/shell.svelte';
   import { Icon, IconButton } from '@immich/ui';
@@ -76,10 +77,11 @@
         onclick={onOpenDrawer}
         class="lg:hidden"
       />
-      <a href="/photos" class="flex shrink-0 items-center gap-2 px-1">
-        <span class="bg-primary flex size-8 items-center justify-center rounded-xl text-xs font-bold text-immich-bg">
-          EL
-        </span>
+      <!-- aria-label rather than alt text on the mark: the wordmark beside it
+           is hidden below lg, which would otherwise leave the link unnamed on
+           a phone. -->
+      <a href="/photos" aria-label="EventLens" class="flex shrink-0 items-center gap-2 px-1">
+        <Logo />
         <span class="text-primary hidden text-lg font-semibold lg:inline">EventLens</span>
       </a>
     </div>
