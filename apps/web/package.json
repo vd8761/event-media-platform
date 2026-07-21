@@ -13,6 +13,8 @@
     "@immich/ui": "^0.83.0",
     "@mdi/js": "^7.4.47",
     "luxon": "^3.4.4",
+    "maplibre-gl": "^5.24.0",
+    "svelte-maplibre": "^1.3.0",
     "thumbhash": "^0.1.1"
   },
   "devDependencies": {
@@ -20,6 +22,7 @@
     "@sveltejs/kit": "^2.22.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@tailwindcss/vite": "^4.1.0",
+    "@types/geojson": "^7946.0.16",
     "@types/luxon": "^3.6.2",
     "svelte": "^5.35.0",
     "svelte-check": "^4.1.0",

@@ -24,6 +24,7 @@ import { EventRow } from 'src/schema';
 import { AssetService } from 'src/services/asset.service';
 import { GalleryTokenService } from 'src/services/gallery-token.service';
 import { PersonService } from 'src/services/person.service';
+import { isEventExpired, isEventPurged } from 'src/utils/event-expiry';
 import { toFaceBoxes } from 'src/utils/face-box';
 import { RateLimiter } from 'src/utils/rate-limiter';
 import { StorageKeys } from 'src/utils/storage-keys';
@@ -320,6 +321,9 @@ export class PublicService {
     await archive.finalize();
   }
 
+  // Every tokenized gallery route funnels through here, so the expiry check
+  // lives here rather than in each of them — a new gallery route cannot
+  // accidentally skip it.
   private async resolveGallery(token: string) {
     const participant = await this.participantRepository.getByTokenHash(this.cryptoRepository.hashSha256(token));
     if (!participant) {
@@ -329,6 +333,22 @@ export class PublicService {
     if (!event || event.deletedAt) {
       throw new NotFoundException('Gallery not found');
     }
+    if (isEventExpired(event)) {
+      // 410 rather than 404: the link was real and the participant may well
+      // have it bookmarked, so the client can say "this has closed" instead of
+      // "never existed". `purged` tells it whether extending could ever help.
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.GONE,
+          error: 'Gone',
+          message: 'This gallery has closed',
+          eventName: event.name,
+          expiredAt: event.expiresAt,
+          purged: isEventPurged(event),
+        },
+        HttpStatus.GONE,
+      );
+    }
     return { participant, event };
   }
 
@@ -336,6 +356,21 @@ export class PublicService {
     const event = await this.eventRepository.getBySlug(slug);
     if (!event || event.status !== EventStatus.Active || !event.participantPageEnabled) {
       throw new NotFoundException('Event not found');
+    }
+    // Intake closes with the galleries — accepting a selfie into an event
+    // whose media is queued for deletion would strand the participant.
+    if (isEventExpired(event)) {
+      throw new HttpException(
+        {
+          statusCode: HttpStatus.GONE,
+          error: 'Gone',
+          message: 'This event has closed',
+          eventName: event.name,
+          expiredAt: event.expiresAt,
+          purged: isEventPurged(event),
+        },
+        HttpStatus.GONE,
+      );
     }
     return event;
   }

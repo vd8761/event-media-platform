@@ -4,21 +4,37 @@
   // navigation, zoom, a detail panel and a real file download.
   import type { AssetDetail } from '$lib/api';
   import FaceBoxes, { type FaceBox } from '$lib/components/FaceBoxes.svelte';
-  import { Icon, IconButton, LoadingSpinner } from '@immich/ui';
+  import PhotoEditor from '$lib/components/PhotoEditor.svelte';
+  import { ContextMenuButton, Icon, IconButton, MenuItemType, type MenuItems } from '@immich/ui';
   import {
     mdiAlertCircleOutline,
+    mdiArrowLeft,
+    mdiCalendarBlankOutline,
+    mdiCamera,
+    mdiCameraIris,
+    mdiCheck,
     mdiChevronLeft,
     mdiChevronRight,
     mdiClose,
+    mdiContentCopy,
     mdiDelete,
+    mdiDotsVertical,
     mdiDownload,
     mdiFaceRecognition,
+    mdiImageOutline,
+    mdiImageSearchOutline,
     mdiInformationOutline,
     mdiMagnifyMinusOutline,
     mdiMagnifyPlusOutline,
+    mdiMapMarkerOutline,
+    mdiPencilOutline,
+    mdiPlay,
+    mdiRefresh,
+    mdiStop,
   } from '@mdi/js';
   import { DateTime } from 'luxon';
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
+  import { fly } from 'svelte/transition';
   import { thumbHashToDataURL } from 'thumbhash';
 
   // Minimal shape the viewer needs — satisfied by both the org gallery's
@@ -54,6 +70,22 @@
     canDelete?: boolean;
     /** False hides the download control (view-only event photos). */
     canDownload?: boolean;
+    /** Same-origin image bytes — required for Copy and the Editor, both of
+     * which read pixels via canvas (the presigned R2 preview URL is
+     * cross-origin with no CORS headers, which taints that canvas). Omit to
+     * hide both actions. */
+    imageProxyUrl?: (assetId: string) => string;
+    /** Organiser-only: shows the Editor action. Saves as a new photo via the
+     * normal upload pipeline rather than replacing the original. */
+    canEdit?: boolean;
+    onEditSave?: (file: File) => Promise<void>;
+    /** 3-dot menu: re-run face detection on just this photo. */
+    onRefreshFaces?: (assetId: string) => Promise<void>;
+    /** 3-dot menu: jump to this photo in the event's main timeline — omit
+     * where the viewer already *is* the main timeline. */
+    onViewInTimeline?: (assetId: string) => void;
+    /** 3-dot menu: show photos visually similar to this one (CLIP search). */
+    onViewSimilar?: (assetId: string) => void;
     onClose: () => void;
     onIndexChange: (index: number) => void;
     onDelete?: (assetId: string) => void;
@@ -69,6 +101,12 @@
     onSetPersonCover,
     canDelete = false,
     canDownload = true,
+    imageProxyUrl,
+    canEdit = false,
+    onEditSave,
+    onRefreshFaces,
+    onViewInTimeline,
+    onViewSimilar,
     onClose,
     onIndexChange,
     onDelete,
@@ -188,6 +226,20 @@
   let downloading = $state(false);
   let downloadError = $state('');
 
+  // Slide direction for the change transition: +1 forward, -1 back. Derived by
+  // comparing the incoming index against the last one we rendered.
+  let direction = $state(1);
+  let lastIndex: number | undefined;
+  $effect(() => {
+    const current = index;
+    untrack(() => {
+      if (lastIndex !== undefined && current !== lastIndex) {
+        direction = current > lastIndex ? 1 : -1;
+      }
+      lastIndex = current;
+    });
+  });
+
   // Reset per-image state whenever we move to a different asset, and fetch the
   // detail record and face boxes that overlay it.
   $effect(() => {
@@ -197,7 +249,10 @@
     }
     imageLoaded = false;
     resetZoom();
-    natural = { width: 0, height: 0 };
+    // `natural` is intentionally NOT reset here: keeping the last photo's
+    // dimensions means the sized box holds its shape through the slide
+    // transition instead of collapsing to zero, and onImageLoad overwrites it
+    // the moment the new photo decodes.
     detail = null;
     faces = [];
 
@@ -242,12 +297,14 @@
   });
 
   function previous() {
+    stopSlideshow();
     if (index > 0) {
       onIndexChange(index - 1);
     }
   }
 
   function next() {
+    stopSlideshow();
     if (index < assets.length - 1) {
       onIndexChange(index + 1);
     }
@@ -256,7 +313,9 @@
   function onKeydown(event: KeyboardEvent) {
     switch (event.key) {
       case 'Escape': {
-        if (zoomed) {
+        if (slideshowActive) {
+          stopSlideshow();
+        } else if (zoomed) {
           resetZoom();
         } else if (showInfo) {
           showInfo = false;
@@ -334,6 +393,103 @@
     }
   }
 
+  // --- copy image (Immich's copyImageToClipboard, asset-utils.ts) ---------
+  const canCopy = $derived(!!imageProxyUrl && !!globalThis.navigator?.clipboard && !!globalThis.ClipboardItem);
+  let copyStatus = $state<'idle' | 'copying' | 'done' | 'error'>('idle');
+
+  async function copyImage() {
+    if (!asset || !imageProxyUrl || copyStatus === 'copying') {
+      return;
+    }
+    copyStatus = 'copying';
+    try {
+      // Same-origin proxy, not the presigned R2 URL — reading pixels from a
+      // cross-origin image with no CORS headers taints the canvas.
+      const image = new Image();
+      image.src = imageProxyUrl(asset.id);
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(image, 0, 0);
+      const blob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob((result) => (result ? resolve(result) : reject(new Error('Canvas conversion failed'))), 'image/png'),
+      );
+      // Not awaited before constructing ClipboardItem — Safari only allows
+      // clipboard writes started synchronously within the user gesture.
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      copyStatus = 'done';
+    } catch {
+      copyStatus = 'error';
+    } finally {
+      setTimeout(() => (copyStatus = 'idle'), 2000);
+    }
+  }
+
+  // --- editor: opens PhotoEditor.svelte over this photo --------------------
+  // PhotoEditor owns its own "saving" spinner state; this just closes the
+  // overlay once the upload completes.
+  let editing = $state(false);
+
+  async function saveEdit(file: File) {
+    if (!onEditSave) {
+      return;
+    }
+    await onEditSave(file);
+    editing = false;
+  }
+
+  // --- slideshow: loops through the current asset list ---------------------
+  let slideshowActive = $state(false);
+  let slideshowTimer: ReturnType<typeof setInterval> | undefined;
+
+  function startSlideshow() {
+    slideshowActive = true;
+    slideshowTimer = setInterval(() => onIndexChange((index + 1) % assets.length), 4000);
+  }
+
+  function stopSlideshow() {
+    slideshowActive = false;
+    if (slideshowTimer) {
+      clearInterval(slideshowTimer);
+      slideshowTimer = undefined;
+    }
+  }
+
+  async function refreshFaces() {
+    if (!asset) {
+      return;
+    }
+    await onRefreshFaces?.(asset.id);
+  }
+
+  const menuItems = $derived<MenuItems>([
+    {
+      title: slideshowActive ? 'Stop slideshow' : 'Slideshow',
+      icon: slideshowActive ? mdiStop : mdiPlay,
+      onAction: () => (slideshowActive ? stopSlideshow() : startSlideshow()),
+    },
+    { title: 'Download', icon: mdiDownload, $if: () => canDownload, onAction: () => download() },
+    {
+      title: 'View in timeline',
+      icon: mdiImageSearchOutline,
+      $if: () => !!onViewInTimeline,
+      onAction: () => asset && onViewInTimeline?.(asset.id),
+    },
+    {
+      title: 'View similar photos',
+      icon: mdiImageSearchOutline,
+      $if: () => !!onViewSimilar,
+      onAction: () => asset && onViewSimilar?.(asset.id),
+    },
+    ...(onRefreshFaces
+      ? ([MenuItemType.Divider, { title: 'Refresh faces', icon: mdiRefresh, onAction: () => void refreshFaces() }] as const)
+      : []),
+  ]);
+
+  onDestroy(() => stopSlideshow());
+
   // Opening a person always replaces what the viewer is showing, so get out of
   // the way first — otherwise the destination renders behind the overlay.
   function openPerson(personId: string) {
@@ -379,6 +535,20 @@
     return `${(bytes / 1024 ** unit).toFixed(1)} ${units[unit]}`;
   }
 
+  // Info-panel derived bits (Immich DetailPanel).
+  const megapixels = $derived(
+    asset?.width && asset?.height ? Math.round((asset.width * asset.height) / 1_000_000) : 0,
+  );
+  const camera = $derived([detail?.exif?.make, detail?.exif?.model].filter(Boolean).join(' '));
+  const latlng = $derived(
+    detail?.exif?.latitude && detail?.exif?.longitude
+      ? { lat: Number(detail.exif.latitude.toFixed(7)), lng: Number(detail.exif.longitude.toFixed(7)) }
+      : null,
+  );
+  // People with a portrait first (Immich shows avatars); fall back to the raw
+  // face list for names when no detail record is loaded.
+  const people = $derived(detail?.people ?? []);
+
   // lock background scrolling while the viewer owns the screen
   onMount(() => {
     const previousOverflow = document.body.style.overflow;
@@ -411,7 +581,7 @@
       class="absolute inset-x-0 top-0 z-20 flex items-center justify-between gap-2 bg-gradient-to-b from-black/80 via-black/40 to-transparent p-2 sm:p-3"
     >
       <div class="flex min-w-0 items-center gap-1 sm:gap-2">
-        <IconButton icon={mdiClose} aria-label="Close" variant="ghost" color="secondary" onclick={onClose} />
+        <IconButton icon={mdiArrowLeft} aria-label="Back" variant="ghost" color="secondary" onclick={onClose} />
         <div class="min-w-0">
           <p class="md-title-small truncate text-white">{filename}</p>
           <p class="md-label-medium truncate text-white/60">
@@ -459,6 +629,16 @@
           disabled={zoom >= 6}
           onclick={() => setZoom(zoom * 1.4)}
         />
+        {#if canCopy}
+          <IconButton
+            icon={copyStatus === 'done' ? mdiCheck : mdiContentCopy}
+            aria-label={copyStatus === 'error' ? 'Copy failed' : copyStatus === 'done' ? 'Copied' : 'Copy image'}
+            variant="ghost"
+            color={copyStatus === 'error' ? 'danger' : copyStatus === 'done' ? 'success' : 'secondary'}
+            loading={copyStatus === 'copying'}
+            onclick={copyImage}
+          />
+        {/if}
         {#if canDownload}
           <IconButton
             icon={mdiDownload}
@@ -476,6 +656,15 @@
           color={showInfo ? 'primary' : 'secondary'}
           onclick={() => (showInfo = !showInfo)}
         />
+        {#if canEdit && imageProxyUrl}
+          <IconButton
+            icon={mdiPencilOutline}
+            aria-label="Editor"
+            variant="ghost"
+            color="secondary"
+            onclick={() => (editing = true)}
+          />
+        {/if}
         {#if canDelete}
           <IconButton
             icon={mdiDelete}
@@ -485,6 +674,9 @@
             onclick={() => onDelete?.(asset.id)}
           />
         {/if}
+        <div class="dark">
+          <ContextMenuButton icon={mdiDotsVertical} aria-label="More" items={menuItems} />
+        </div>
       </div>
     </header>
 
@@ -495,6 +687,17 @@
         ontouchstart={onTouchStart}
         ontouchend={onTouchEnd}
       >
+        {#if slideshowActive}
+          <button
+            type="button"
+            onclick={stopSlideshow}
+            class="absolute top-3 start-1/2 z-20 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/60 px-4 py-2 text-sm text-white transition hover:bg-black/80"
+          >
+            <Icon icon={mdiStop} size="1rem" />
+            Stop slideshow
+          </button>
+        {/if}
+
         {#if index > 0}
           <button
             data-md-raw
@@ -507,9 +710,10 @@
         {/if}
 
         {#if asset.previewUrl}
+          <!-- Thumbhash backdrop while the full preview decodes — no spinner,
+               so a change reads as a smooth crossfade the way Immich's does. -->
           {#if placeholder && !imageLoaded}
-            <img src={placeholder} alt="" class="absolute h-full w-full object-contain blur-xl" />
-            <div class="absolute"><LoadingSpinner size="giant" /></div>
+            <img src={placeholder} alt="" class="pointer-events-none absolute h-full w-full object-contain blur-xl" />
           {/if}
 
           <!-- The frame is absolutely sized to the stage, which gives the image
@@ -541,14 +745,22 @@
                 class="relative shrink-0"
                 style={displayWidth > 0 ? `width: ${displayWidth}px; height: ${displayHeight}px` : ''}
               >
-                <img
-                  src={asset.previewUrl}
-                  alt={filename}
-                  draggable="false"
-                  class="block h-full w-full object-contain transition-opacity duration-200 select-none
-                    {imageLoaded ? 'opacity-100' : 'opacity-0'}"
-                  onload={onImageLoad}
-                />
+                <!-- Keyed so each photo change mounts a fresh image that slides
+                     in from the direction of travel while the old one slides
+                     out — Immich's next/previous feel. The two overlap
+                     (absolute inset-0) during the ~220ms transition. Zoomed in,
+                     the slide is skipped so panning isn't interrupted. -->
+                {#key asset.id}
+                  <img
+                    src={asset.previewUrl}
+                    alt={filename}
+                    draggable="false"
+                    class="absolute inset-0 block h-full w-full object-contain select-none"
+                    in:fly={{ x: zoomed ? 0 : direction * 48, duration: zoomed ? 0 : 220, opacity: 0 }}
+                    out:fly={{ x: zoomed ? 0 : -direction * 48, duration: zoomed ? 0 : 220, opacity: 0 }}
+                    onload={onImageLoad}
+                  />
+                {/key}
 
                 {#if showFaces && imageLoaded && faces.length > 0}
                   <FaceBoxes
@@ -585,75 +797,142 @@
         {/if}
       </div>
 
-      <!-- info panel: side drawer on desktop, bottom sheet on mobile -->
+      <!-- Info panel — Immich's DetailPanel: a light side panel (bottom sheet
+           on mobile) with a people row, then icon-led detail rows. -->
       {#if showInfo}
         <aside
-          class="immich-scrollbar max-h-[45vh] shrink-0 overflow-y-auto border-t border-white/10 bg-neutral-900 p-5 text-white md:max-h-none md:w-80 md:border-t-0 md:border-s"
+          id="info-panel"
+          class="immich-scrollbar bg-light text-immich-fg dark:text-immich-dark-fg max-h-[45vh] shrink-0 overflow-y-auto md:max-h-none md:w-90 md:border-s md:border-gray-200 dark:md:border-immich-dark-gray"
         >
-          <h2 class="md-title-medium mb-4">Details</h2>
-
-          <dl class="space-y-3.5">
-            <div>
-              <dt class="md-label-medium text-white/50">File name</dt>
-              <dd class="md-body-medium break-all">{filename}</dd>
+          <section class="relative p-2">
+            <div class="flex place-items-center gap-2">
+              <IconButton
+                icon={mdiClose}
+                aria-label="Close"
+                shape="round"
+                variant="ghost"
+                color="secondary"
+                onclick={() => (showInfo = false)}
+              />
+              <p class="text-lg">Info</p>
             </div>
-            {#if asset.width && asset.height}
-              <div>
-                <dt class="md-label-medium text-white/50">Dimensions</dt>
-                <dd class="md-body-medium">{asset.width} × {asset.height}</dd>
+
+            <!-- People -->
+            {#if people.length > 0}
+              <div class="px-2 pt-4">
+                <div class="flex flex-wrap gap-3">
+                  {#each people as person (person.id)}
+                    <button
+                      type="button"
+                      class="flex w-16 flex-col items-center gap-1 text-center"
+                      disabled={!onOpenPerson}
+                      onclick={() => openPerson(person.id)}
+                    >
+                      <span class="size-14 overflow-hidden rounded-full bg-subtle">
+                        {#if person.thumbnailUrl}
+                          <img src={person.thumbnailUrl} alt="" class="h-full w-full object-cover" />
+                        {:else}
+                          <span class="text-primary flex h-full w-full items-center justify-center">
+                            <Icon icon={mdiFaceRecognition} size="1.5rem" />
+                          </span>
+                        {/if}
+                      </span>
+                      {#if person.name}
+                        <span class="w-full truncate text-xs">{person.name}</span>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
               </div>
             {/if}
-            {#if detail}
-              <div>
-                <dt class="md-label-medium text-white/50">Size</dt>
-                <dd class="md-body-medium">{formatBytes(detail.fileSize)} · {detail.mimeType}</dd>
+
+            <div class="p-4">
+              <div class="flex h-10 w-full items-center">
+                <span class="md-label-medium text-gray-500">
+                  {detail?.exif ? 'DETAILS' : 'No metadata available'}
+                </span>
               </div>
-              {#if detail.exif?.make || detail.exif?.model}
-                <div>
-                  <dt class="md-label-medium text-white/50">Camera</dt>
-                  <dd class="md-body-medium">{[detail.exif.make, detail.exif.model].filter(Boolean).join(' ')}</dd>
+
+              <!-- Date -->
+              {#if asset.capturedAt || asset.createdAt}
+                <div class="flex gap-4 py-2">
+                  <Icon icon={mdiCalendarBlankOutline} size="1.5rem" class="mt-0.5 shrink-0" />
+                  <div>
+                    <p class="font-medium">
+                      {DateTime.fromISO(asset.capturedAt ?? asset.createdAt).toLocaleString(DateTime.DATE_FULL)}
+                    </p>
+                    <p class="text-sm text-gray-500">
+                      {DateTime.fromISO(asset.capturedAt ?? asset.createdAt).toLocaleString(DateTime.TIME_SIMPLE)}
+                    </p>
+                  </div>
                 </div>
               {/if}
-            {/if}
-            <div>
-              <dt class="md-label-medium text-white/50">Added</dt>
-              <dd class="md-body-medium">{DateTime.fromISO(asset.createdAt).toLocaleString(DateTime.DATETIME_MED)}</dd>
-            </div>
-            {#if asset.faceCount !== undefined}
-              <div>
-                <dt class="md-label-medium text-white/50">Face detection</dt>
-                <dd class="md-body-medium">
-                  {#if asset.facesDetectedAt}
-                    {asset.faceCount === 0
-                      ? 'No faces found'
-                      : `${asset.faceCount} face${asset.faceCount === 1 ? '' : 's'} found`}
-                  {:else}
-                    <span class="text-amber-300">Pending</span>
-                  {/if}
-                </dd>
-              </div>
-            {/if}
-          </dl>
 
-          {#if faces.length > 0}
-            <h3 class="md-label-medium mt-6 mb-3 text-white/50 uppercase">People in this photo</h3>
-            <div class="flex flex-wrap gap-2">
-              {#each faces as face (face.id)}
-                <button
-                  data-md-raw
-                  class="md-label-large rounded-full bg-white/10 px-3 py-1.5 transition hover:bg-white/20 disabled:cursor-default disabled:hover:bg-white/10"
-                  disabled={!face.personId || !onOpenPerson}
-                  onclick={() => face.personId && openPerson(face.personId)}
-                >
-                  {face.name || 'Unnamed'}
-                </button>
-              {/each}
+              <!-- File -->
+              <div class="flex gap-4 py-2">
+                <Icon icon={mdiImageOutline} size="1.5rem" class="mt-0.5 shrink-0" />
+                <div class="min-w-0">
+                  <p class="break-all">{filename}</p>
+                  <div class="flex gap-2 text-sm text-gray-500">
+                    {#if megapixels > 0}<span>{megapixels} MP</span>{/if}
+                    {#if asset.width && asset.height}<span>{asset.width} × {asset.height}</span>{/if}
+                    {#if detail}<span>{formatBytes(detail.fileSize)}</span>{/if}
+                  </div>
+                </div>
+              </div>
+
+              <!-- Camera -->
+              {#if camera}
+                <div class="flex gap-4 py-2">
+                  <Icon icon={mdiCamera} size="1.5rem" class="mt-0.5 shrink-0" />
+                  <div>
+                    <p>{camera}</p>
+                  </div>
+                </div>
+              {/if}
+
+              <!-- Lens -->
+              {#if detail?.exif?.lens}
+                <div class="flex gap-4 py-2">
+                  <Icon icon={mdiCameraIris} size="1.5rem" class="mt-0.5 shrink-0" />
+                  <div>
+                    <p class="line-clamp-2">{detail.exif.lens}</p>
+                  </div>
+                </div>
+              {/if}
+
+              <!-- Location -->
+              {#if latlng}
+                <div class="flex gap-4 py-2">
+                  <Icon icon={mdiMapMarkerOutline} size="1.5rem" class="mt-0.5 shrink-0" />
+                  <div>
+                    <p>{latlng.lat}, {latlng.lng}</p>
+                    <a
+                      href="https://www.openstreetmap.org/?mlat={latlng.lat}&mlon={latlng.lng}#map=15/{latlng.lat}/{latlng.lng}"
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      class="text-primary text-sm hover:underline"
+                    >
+                      Open in OpenStreetMap
+                    </a>
+                  </div>
+                </div>
+              {/if}
             </div>
-          {/if}
+          </section>
         </aside>
       {/if}
     </div>
   </div>
+{/if}
+
+{#if editing && asset && imageProxyUrl}
+  <PhotoEditor
+    src={imageProxyUrl(asset.id)}
+    filename={asset.originalFilename ?? 'photo.jpg'}
+    onCancel={() => (editing = false)}
+    onSave={saveEdit}
+  />
 {/if}
 
 <style>
@@ -674,7 +953,15 @@
     color: rgb(248, 113, 113);
   }
 
-  .viewer :global(aside button:disabled) {
-    color: rgba(255, 255, 255, 0.6);
+  /* The info panel is a light surface, so undo the white-on-dark override for
+     everything inside it — buttons and links inherit the panel's own colour. */
+  .viewer :global(#info-panel button),
+  .viewer :global(#info-panel a) {
+    color: inherit;
+  }
+
+  .viewer :global(#info-panel button:hover:not(:disabled)) {
+    background-color: rgba(128, 128, 128, 0.15);
+    color: inherit;
   }
 </style>

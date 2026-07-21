@@ -1,8 +1,10 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import { api, downloadSelectionZip, sha1Hex, uploadAsset, type AssetItem, type ProcessingStatus } from '$lib/api';
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
   import PhotoViewer from '$lib/components/PhotoViewer.svelte';
+  import Scrubber from '$lib/components/Scrubber.svelte';
   import ProcessingBar from '$lib/components/ProcessingBar.svelte';
   import SelectionBar from '$lib/components/SelectionBar.svelte';
   import { Button, Icon, IconButton, LoadingSpinner } from '@immich/ui';
@@ -30,9 +32,15 @@
   let viewerIndex = $state(-1);
   let fileInput = $state<HTMLInputElement | null>(null);
   let processing = $state<ProcessingStatus | null>(null);
+  let timelineEl = $state<HTMLElement | null>(null);
 
-  let selecting = $state(false);
+  // PhotoTimeline owns selection; this page just reads its size for the
+  // toolbar and clears it after bulk actions. `selectMode` is the touch-device
+  // entry point — hover has no equivalent on mobile, so a button forces the
+  // checkboxes on with nothing selected yet.
   let selected = $state(new Set<string>());
+  let selectMode = $state(false);
+  const selecting = $derived(selected.size > 0 || selectMode);
   let downloadingZip = $state(false);
 
   // --- upload panel (Immich UploadPanel pattern) ---
@@ -201,19 +209,9 @@
     }
   }
 
-  function toggleSelect(assetId: string) {
-    const next = new Set(selected);
-    if (next.has(assetId)) {
-      next.delete(assetId);
-    } else {
-      next.add(assetId);
-    }
-    selected = next;
-  }
-
   function clearSelection() {
-    selecting = false;
     selected = new Set();
+    selectMode = false;
   }
 
   async function downloadSelected() {
@@ -249,7 +247,30 @@
     await refresh();
   }
 
-  onMount(() => void refresh(true));
+  // Deep-linking from elsewhere (the org Photos timeline, an event glimpse)
+  // passes `?asset=<id>` — the asset may be further back than the first page,
+  // so page forward until it turns up or the gallery runs out.
+  async function openFromQuery() {
+    const assetId = page.url.searchParams.get('asset');
+    if (!assetId) {
+      return;
+    }
+    let index = assets.findIndex((asset) => asset.id === assetId);
+    let attempts = 0;
+    while (index === -1 && nextCursor && attempts < 20) {
+      await loadMore();
+      index = assets.findIndex((asset) => asset.id === assetId);
+      attempts++;
+    }
+    if (index !== -1) {
+      viewerIndex = index;
+    }
+  }
+
+  onMount(async () => {
+    await refresh(true);
+    await openFromQuery();
+  });
   onDestroy(() => {
     if (pollTimer) {
       clearInterval(pollTimer);
@@ -274,7 +295,7 @@
   />
   <div class="flex items-center gap-2">
     {#if assets.length > 0 && !selecting}
-      <Button variant="outline" leadingIcon={mdiCheckCircleOutline} onclick={() => (selecting = true)}>Select</Button>
+      <Button variant="outline" leadingIcon={mdiCheckCircleOutline} onclick={() => (selectMode = true)}>Select</Button>
     {/if}
     <Button leadingIcon={mdiUpload} onclick={() => fileInput?.click()}>Upload</Button>
   </div>
@@ -305,13 +326,19 @@
     No photos yet — upload some to get started.
   </div>
 {:else}
-  <PhotoTimeline {assets} {selecting} {selected} onToggleSelect={toggleSelect} onOpen={(index) => (viewerIndex = index)} />
-
-  {#if nextCursor}
-    <div class="mt-6 flex justify-center">
-      <Button variant="outline" onclick={loadMore}>Load more</Button>
+  <div class="md:pe-[60px]">
+    <div bind:this={timelineEl}>
+      <PhotoTimeline {assets} bind:selected {selectMode} onOpen={(index) => (viewerIndex = index)} />
     </div>
-  {/if}
+
+    {#if nextCursor}
+      <div class="mt-6 flex justify-center">
+        <Button variant="outline" onclick={loadMore}>Load more</Button>
+      </div>
+    {/if}
+  </div>
+
+  <Scrubber timelineElement={timelineEl} revision={assets.length} />
 {/if}
 
 <!-- upload progress panel -->
@@ -409,6 +436,14 @@
       ? async (personId, faceId) => void (await api.people.setCover(eventId, personId, faceId))
       : undefined}
     canDelete={canManage}
+    canEdit={canManage}
+    imageProxyUrl={(assetId) => api.assets.imageUrl(eventId, assetId)}
+    onEditSave={async (file) => {
+      await uploadAsset(eventId, file, () => {});
+      await refresh();
+    }}
+    onRefreshFaces={canManage ? (assetId) => api.assets.runJob(eventId, assetId, 'faceDetection', true) : undefined}
+    onViewSimilar={(assetId) => goto(`/events/${eventId}/similar/${assetId}`)}
     onClose={() => (viewerIndex = -1)}
     onIndexChange={(index) => (viewerIndex = index)}
     onDelete={deleteAsset}

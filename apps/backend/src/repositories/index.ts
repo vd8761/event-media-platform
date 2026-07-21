@@ -10,6 +10,7 @@ import { EventRepository } from 'src/repositories/event.repository';
 import { ExifRepository } from 'src/repositories/exif.repository';
 import { FaceRepository } from 'src/repositories/face.repository';
 import { FaceSearchRepository } from 'src/repositories/face-search.repository';
+import { SmartSearchRepository } from 'src/repositories/smart-search.repository';
 import { ImportRepository } from 'src/repositories/import.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
@@ -37,6 +38,7 @@ export const repositories = [
   ExifRepository,
   FaceRepository,
   FaceSearchRepository,
+  SmartSearchRepository,
   ImportRepository,
   JobRepository,
   LoggingRepository,

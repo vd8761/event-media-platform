@@ -123,6 +123,9 @@ export class EventService {
       rows.map((asset) => ({ name: JobName.FaceDetect as const, data: { assetId: asset.id } })),
     );
     await this.jobRepository.queue({ name: JobName.FaceRecognizeQueueAll, data: { eventId, force } });
+    // Backfill CLIP embeddings for "view similar" at the same time — only the
+    // assets still missing one, unless forced.
+    await this.jobRepository.queue({ name: JobName.SmartSearchQueueAll, data: { eventId, force } });
 
     return { queued: rows.length };
   }

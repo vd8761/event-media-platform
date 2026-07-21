@@ -17,12 +17,19 @@ const optionalTristateBool = z
 export const EnvSchema = z.object({
   EL_HOST: z.string().optional(),
   EL_PORT: optionalInt,
+  // Most PaaS hosts (Render, Railway, Fly…) inject the port they expect the
+  // service to listen on as PORT. Honoured when EL_PORT is unset so the app
+  // binds correctly without per-platform configuration.
+  PORT: optionalInt,
   EL_ENV: z.enum(['development', 'production']).optional(),
   EL_LOG_LEVEL: z.enum(['verbose', 'debug', 'log', 'warn', 'error', 'fatal']).optional(),
 
   EL_WORKERS_INCLUDE: z.string().optional(),
   EL_WORKERS_EXCLUDE: z.string().optional(),
   EL_QUEUES_EXCLUDE: z.string().optional(),
+  // Opt a deployment into queues outside its role — e.g. running `selfie` on
+  // the API host so participant intake does not wait on the GPU box.
+  EL_QUEUES_INCLUDE: z.string().optional(),
 
   // Single connection string for every environment — local compose, Neon,
   // or any other managed Postgres. `?sslmode=require` is honoured, and Neon
@@ -62,6 +69,13 @@ export const EnvSchema = z.object({
   EMAIL_FROM: z.string().optional(),
 
   RESEND_API_KEY: z.string().optional(),
+  // Svix signing secret (`whsec_…`) for POST /api/webhooks/resend. Without it
+  // the endpoint rejects everything.
+  RESEND_WEBHOOK_SECRET: z.string().optional(),
+
+  // Shared secret the GPU box presents to GET /api/webhooks/gpu/heartbeat.
+  // Without it that endpoint rejects everything, so the box self-stops.
+  EL_GPU_HEARTBEAT_TOKEN: z.string().optional(),
 
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: optionalInt,

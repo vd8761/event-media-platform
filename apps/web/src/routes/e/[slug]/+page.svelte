@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { api, ApiError } from '$lib/api';
+  import { api, ApiError, asExpiredEvent, type ExpiredEventInfo } from '$lib/api';
   import { Alert, Button, Heading, Input, LoadingSpinner } from '@immich/ui';
   import { mdiCameraOutline } from '@mdi/js';
   import { Icon } from '@immich/ui';
@@ -11,6 +11,7 @@
 
   let event = $state<{ name: string; description: string | null; startsAt: string | null } | null>(null);
   let notFound = $state(false);
+  let expired = $state<ExpiredEventInfo | null>(null);
 
   let email = $state('');
   // required: it becomes the label on this person's face in every photo
@@ -53,8 +54,11 @@
   onMount(async () => {
     try {
       event = await api.public.event(slug);
-    } catch {
-      notFound = true;
+    } catch (error) {
+      // A closed event is not a missing one — say so, or guests assume they
+      // followed a broken link and keep retrying.
+      expired = asExpiredEvent(error);
+      notFound = expired === null;
     }
   });
 </script>
@@ -62,7 +66,15 @@
 <svelte:head><title>{event?.name ?? 'Event'} — EventLens</title></svelte:head>
 
 <div class="flex min-h-screen items-center justify-center bg-immich-bg p-4">
-  {#if notFound}
+  {#if expired}
+    <div class="md-surface w-full max-w-md p-8 text-center">
+      <p class="md-title-large mb-2">{expired.eventName} has closed</p>
+      <p class="md-body-medium text-gray-600">
+        Photo sharing for this event has ended, so new selfies can't be accepted.
+      </p>
+      <p class="md-body-small mt-4 text-gray-500">Contact the event organiser if you still need your photos.</p>
+    </div>
+  {:else if notFound}
     <p class="text-gray-500">This event does not exist or is not open.</p>
   {:else if !event}
     <LoadingSpinner size="giant" />

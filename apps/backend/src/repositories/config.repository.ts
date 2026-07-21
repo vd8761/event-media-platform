@@ -25,6 +25,7 @@ export interface EnvData {
 
   workers: WorkerRole[];
   excludedQueues: QueueName[];
+  includedQueues: QueueName[];
 
   bull: {
     config: QueueOptions;
@@ -64,6 +65,7 @@ export interface EnvData {
     provider: EmailProvider;
     from: string;
     resend: { apiKey?: string };
+    webhookSecret?: string;
     smtp: {
       host?: string;
       port: number;
@@ -74,6 +76,7 @@ export interface EnvData {
   };
 
   publicBaseUrl: string;
+  gpuHeartbeatToken?: string;
   tokenEncryptionKey?: string;
   sessionTtlDays: number;
 
@@ -184,6 +187,7 @@ const resolveEmail = (dto: EnvDto): EnvData['email'] => {
     provider,
     from: dto.EMAIL_FROM || dto.SMTP_FROM || 'EventLens <noreply@eventlens.local>',
     resend: { apiKey: dto.RESEND_API_KEY },
+    webhookSecret: dto.RESEND_WEBHOOK_SECRET,
     smtp: {
       host: dto.SMTP_HOST,
       port: dto.SMTP_PORT || 587,
@@ -223,6 +227,19 @@ const getEnv = (): EnvData => {
     }
   }
 
+  const includedQueues = [...asSet<QueueName>(dto.EL_QUEUES_INCLUDE, [])];
+  for (const queue of includedQueues) {
+    if (!QUEUE_TYPES.has(queue)) {
+      throw new Error(`Invalid queue(s) in EL_QUEUES_INCLUDE: ${includedQueues.join(',')}`);
+    }
+  }
+  // Exclude wins: it is the safety valve that guarantees a queue has exactly
+  // one consumer (facialRecognition), so nothing may override it.
+  const overlap = includedQueues.filter((queue) => excludedQueues.includes(queue));
+  if (overlap.length > 0) {
+    throw new Error(`Queue(s) in both EL_QUEUES_INCLUDE and EL_QUEUES_EXCLUDE: ${overlap.join(',')}`);
+  }
+
   const environment = (dto.EL_ENV as Environment) || Environment.Production;
 
   const redisConfig = resolveRedis(dto);
@@ -230,12 +247,13 @@ const getEnv = (): EnvData => {
 
   return {
     host: dto.EL_HOST,
-    port: dto.EL_PORT || 3001,
+    port: dto.EL_PORT || dto.PORT || 3001,
     environment,
     logLevel: dto.EL_LOG_LEVEL as LogLevel | undefined,
 
     workers,
     excludedQueues,
+    includedQueues,
 
     bull: {
       config: {
@@ -286,6 +304,7 @@ const getEnv = (): EnvData => {
     email: resolveEmail(dto),
 
     publicBaseUrl: dto.EL_PUBLIC_BASE_URL || 'http://localhost:3001',
+    gpuHeartbeatToken: dto.EL_GPU_HEARTBEAT_TOKEN,
     tokenEncryptionKey: dto.EL_TOKEN_ENCRYPTION_KEY,
     sessionTtlDays: dto.EL_SESSION_TTL_DAYS || 90,
 

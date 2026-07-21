@@ -6,7 +6,7 @@
 // describes the process asking. Instead every process publishes its own host
 // sample to a short-TTL Redis key and the API reads whatever is currently
 // alive. A worker that dies simply stops appearing once its key expires.
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnApplicationShutdown } from '@nestjs/common';
 import { execFile } from 'node:child_process';
 import { arch, cpus, freemem, hostname, platform, totalmem, uptime } from 'node:os';
 import { promisify } from 'node:util';
@@ -89,7 +89,7 @@ const toNumber = (value: string): number | null => {
 };
 
 @Injectable()
-export class TelemetryRepository {
+export class TelemetryRepository implements OnApplicationShutdown {
   private client?: Redis;
   private interval?: ReturnType<typeof setInterval>;
   private readonly instanceId = `${hostname()}:${process.pid}`;
@@ -126,6 +126,12 @@ export class TelemetryRepository {
   startHeartbeat() {
     void this.publish();
     this.interval ??= setInterval(() => void this.publish(), HEARTBEAT_INTERVAL_MS);
+  }
+
+  // Invoked by Nest on SIGTERM/SIGINT (main.ts enables shutdown hooks). A
+  // hard kill -9 skips this, in which case the key just expires on its TTL.
+  async onApplicationShutdown() {
+    await this.teardown();
   }
 
   async teardown() {

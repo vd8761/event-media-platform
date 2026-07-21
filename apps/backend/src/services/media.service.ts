@@ -117,8 +117,11 @@ export class MediaService {
         status: AssetStatus.Processed,
       });
 
-      // fan out (docs/plan/05 §2)
-      const jobs = [{ name: JobName.FaceDetect as const, data: { assetId } }];
+      // fan out (docs/plan/05 §2): faces + CLIP embedding for similar-search
+      const jobs = [
+        { name: JobName.FaceDetect as const, data: { assetId } },
+        { name: JobName.SmartSearch as const, data: { assetId } },
+      ];
       if (isVideo) {
         jobs.push({ name: JobName.VideoTranscode as any, data: { assetId } } as any);
       }

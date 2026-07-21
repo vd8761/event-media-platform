@@ -79,6 +79,17 @@ export interface EventTable {
   config: Generated<EventConfig>;
   participantsSeeAllPhotos: Generated<boolean>;
   participantsCanDownloadAll: Generated<boolean>;
+  // Expiration (migration 0007). expiresAt closes the participant links;
+  // purgeAfter is when the media actually leaves R2. Everything between the
+  // two is the organizer's window to extend or purge early.
+  // Sidebar thumbnail. Nulled automatically if the chosen photo is deleted
+  // (migration 0008).
+  coverAssetId: string | null;
+  expiresAt: Timestamp | null;
+  expiryNotifiedAt: Timestamp | null;
+  expiryAcknowledgedAt: Timestamp | null;
+  purgeAfter: Timestamp | null;
+  purgedAt: Timestamp | null;
   createdAt: CreatedAt;
   updatedAt: GeneratedTimestamp;
   deletedAt: Timestamp | null;
@@ -161,6 +172,13 @@ export interface AssetFaceTable {
 // Column-identical to immich:server/src/schema/tables/face-search.table.ts.
 export interface FaceSearchTable {
   faceId: string;
+  embedding: string;
+}
+
+// One CLIP visual embedding per asset — backs "view similar photos"
+// (immich smart_search).
+export interface SmartSearchTable {
+  assetId: string;
   embedding: string;
 }
 
@@ -270,6 +288,8 @@ export interface EmailLogTable {
   error: string | null;
   createdAt: CreatedAt;
   sentAt: Timestamp | null;
+  // When the provider last reported on this message (migration 0006).
+  statusAt: Timestamp | null;
 }
 
 export interface SystemConfigTable {
@@ -288,6 +308,7 @@ export interface DB {
   assetExif: AssetExifTable;
   assetFace: AssetFaceTable;
   faceSearch: FaceSearchTable;
+  smartSearch: SmartSearchTable;
   person: PersonTable;
   participant: ParticipantTable;
   participantMatch: ParticipantMatchTable;

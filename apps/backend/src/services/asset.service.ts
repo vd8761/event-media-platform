@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import archiver from 'archiver';
 import { Response } from 'express';
 import { AssetJobDto } from 'src/dtos/asset.dto';
-import { AssetStatus, JobName } from 'src/enum';
+import { AssetFileType, AssetStatus, JobName } from 'src/enum';
 import { AssetRepository } from 'src/repositories/asset.repository';
 import { EventRepository } from 'src/repositories/event.repository';
 import { JobRepository } from 'src/repositories/job.repository';
@@ -86,6 +86,118 @@ export class AssetService {
     };
   }
 
+  // Random sample for an event's Memories slideshow — the auto-advancing
+  // strip picks a handful of photos at random rather than the newest N, so it
+  // reads as a highlight reel instead of "recently uploaded" again.
+  async randomForEvent(eventId: string, limit: number): Promise<AssetListResponse['assets']> {
+    const rows = await this.assetRepository.getRandomForEvent(eventId, limit);
+    return Promise.all(
+      rows.map(async (row) => ({
+        id: row.id,
+        type: row.type,
+        status: row.status,
+        originalFilename: row.originalFilename,
+        capturedAt: row.capturedAt,
+        createdAt: row.createdAt,
+        width: row.width,
+        height: row.height,
+        thumbhash: row.thumbhash ? row.thumbhash.toString('base64') : null,
+        thumbUrl: row.thumbKey ? await this.storageRepository.presignGet(row.thumbKey, { expiresIn: LIST_URL_TTL }) : null,
+        previewUrl: row.previewKey
+          ? await this.storageRepository.presignGet(row.previewKey, { expiresIn: LIST_URL_TTL })
+          : null,
+        facesDetectedAt: row.facesDetectedAt,
+        faceCount: row.faceCount,
+      })),
+    );
+  }
+
+  // Hydrate an ordered list of asset ids (from the similar-photo vector
+  // search) into the gallery DTO, preserving the ranked order.
+  async listByIds(eventId: string, ids: string[]): Promise<AssetListResponse['assets']> {
+    const rows = await this.assetRepository.listByIds(eventId, ids);
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const ordered = ids.map((id) => byId.get(id)).filter((row): row is (typeof rows)[number] => row !== undefined);
+    return Promise.all(
+      ordered.map(async (row) => ({
+        id: row.id,
+        type: row.type,
+        status: row.status,
+        originalFilename: row.originalFilename,
+        capturedAt: row.capturedAt,
+        createdAt: row.createdAt,
+        width: row.width,
+        height: row.height,
+        thumbhash: row.thumbhash ? row.thumbhash.toString('base64') : null,
+        thumbUrl: row.thumbKey ? await this.storageRepository.presignGet(row.thumbKey, { expiresIn: LIST_URL_TTL }) : null,
+        previewUrl: row.previewKey
+          ? await this.storageRepository.presignGet(row.previewKey, { expiresIn: LIST_URL_TTL })
+          : null,
+        facesDetectedAt: row.facesDetectedAt,
+        faceCount: row.faceCount,
+      })),
+    );
+  }
+
+  // Org-wide Photos timeline: every event's photos in one date-ordered stream.
+  // Each item carries its event so the UI can label and link back to it.
+  async listForOrg(orgId: string, limit: number, cursor?: string) {
+    const decoded = cursor ? this.decodeCursor(cursor) : undefined;
+    const rows = await this.assetRepository.listForOrg(orgId, {
+      limit: limit + 1,
+      cursorCapturedAt: decoded?.capturedAt,
+      cursorId: decoded?.id,
+    });
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+
+    const assets = await Promise.all(
+      page.map(async (row) => ({
+        id: row.id,
+        eventId: row.eventId,
+        eventName: row.eventName,
+        type: row.type,
+        status: row.status,
+        originalFilename: row.originalFilename,
+        capturedAt: row.capturedAt,
+        createdAt: row.createdAt,
+        width: row.width,
+        height: row.height,
+        thumbhash: row.thumbhash ? row.thumbhash.toString('base64') : null,
+        thumbUrl: row.thumbKey
+          ? await this.storageRepository.presignGet(row.thumbKey, { expiresIn: LIST_URL_TTL })
+          : null,
+        previewUrl: row.previewKey
+          ? await this.storageRepository.presignGet(row.previewKey, { expiresIn: LIST_URL_TTL })
+          : null,
+      })),
+    );
+
+    const last = page.at(-1);
+    return {
+      assets,
+      nextCursor: hasMore && last ? this.encodeCursor(last.capturedAt, last.id) : null,
+    };
+  }
+
+  // Map markers for the org-wide Map tab: every geotagged photo's coordinates
+  // plus which event it belongs to, so a marker click can open that gallery.
+  async getMapMarkers(orgId: string) {
+    const rows = await this.assetRepository.getMapMarkersForOrg(orgId);
+    return Promise.all(
+      rows.map(async (row) => ({
+        id: row.id,
+        eventId: row.eventId,
+        lat: row.lat,
+        lon: row.lon,
+        thumbUrl: row.thumbKey
+          ? await this.storageRepository.presignGet(row.thumbKey, { expiresIn: LIST_URL_TTL })
+          : null,
+      })),
+    );
+  }
+
   async get(eventId: string, assetId: string) {
     const asset = await this.assetRepository.getById(eventId, assetId);
     if (!asset) {
@@ -115,6 +227,29 @@ export class AssetService {
         })),
       ),
     };
+  }
+
+  // Same-origin proxy for pixel-reading features (copy-to-clipboard, the
+  // crop/rotate editor): both draw the image into a canvas, which the browser
+  // taints for any cross-origin source unless the response carries CORS
+  // headers — and R2 has none configured (docs/plan/04 §CORS). Streaming the
+  // bytes through our own API sidesteps that without touching bucket config.
+  async streamPreview(eventId: string, assetId: string, res: Response): Promise<void> {
+    const asset = await this.assetRepository.getById(eventId, assetId);
+    if (!asset) {
+      throw new NotFoundException('Asset not found');
+    }
+    const files = await this.assetRepository.getFiles(assetId);
+    const preview =
+      files.find((file) => file.type === AssetFileType.Preview) ??
+      files.find((file) => file.type === AssetFileType.Thumbnail);
+    if (!preview) {
+      throw new NotFoundException('No preview available yet');
+    }
+    const stream = await this.storageRepository.getStream(preview.storageKey);
+    res.setHeader('Content-Type', preview.format ? `image/${preview.format}` : 'image/jpeg');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    stream.pipe(res);
   }
 
   async getDownloadUrl(eventId: string, assetId: string): Promise<string> {

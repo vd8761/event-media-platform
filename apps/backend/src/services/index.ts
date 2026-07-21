@@ -4,9 +4,12 @@ import { AuthService } from 'src/services/auth.service';
 import { CipherService } from 'src/services/cipher.service';
 import { CleanupService } from 'src/services/cleanup.service';
 import { CloudService } from 'src/services/cloud.service';
+import { EventExpiryService } from 'src/services/event-expiry.service';
 import { EventService } from 'src/services/event.service';
 import { FaceService } from 'src/services/face.service';
+import { SmartSearchService } from 'src/services/smart-search.service';
 import { GalleryTokenService } from 'src/services/gallery-token.service';
+import { GpuLifecycleService } from 'src/services/gpu-lifecycle.service';
 import { ImportService } from 'src/services/import.service';
 import { MediaService } from 'src/services/media.service';
 import { NotificationService } from 'src/services/notification.service';
@@ -23,9 +26,12 @@ export const services = [
   CipherService,
   CleanupService,
   CloudService,
+  EventExpiryService,
   EventService,
   FaceService,
+  SmartSearchService,
   GalleryTokenService,
+  GpuLifecycleService,
   ImportService,
   MediaService,
   NotificationService,

@@ -7,6 +7,10 @@ import * as m0002 from 'src/migrations/0002-participant-token';
 import * as m0003 from 'src/migrations/0003-asset-face-status';
 import * as m0004 from 'src/migrations/0004-sharing-and-feature-photo';
 import * as m0005 from 'src/migrations/0005-participant-name-and-covers';
+import * as m0006 from 'src/migrations/0006-email-delivery-status';
+import * as m0007 from 'src/migrations/0007-event-expiration';
+import * as m0008 from 'src/migrations/0008-event-cover';
+import * as m0009 from 'src/migrations/0009-smart-search';
 
 const migrations: Record<string, Migration> = {
   '0001-init': m0001,
@@ -14,6 +18,10 @@ const migrations: Record<string, Migration> = {
   '0003-asset-face-status': m0003,
   '0004-sharing-and-feature-photo': m0004,
   '0005-participant-name-and-covers': m0005,
+  '0006-email-delivery-status': m0006,
+  '0007-event-expiration': m0007,
+  '0008-event-cover': m0008,
+  '0009-smart-search': m0009,
 };
 
 export class StaticMigrationProvider implements MigrationProvider {

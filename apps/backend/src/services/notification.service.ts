@@ -4,16 +4,20 @@
 import { Injectable } from '@nestjs/common';
 import { createElement } from 'react';
 import { OnJob } from 'src/decorators';
+import { EventExpiredEmail, subject as eventExpiredSubject } from 'src/emails/event-expired.email';
 import { GalleryReadyEmail, subject as galleryReadySubject } from 'src/emails/gallery-ready.email';
 import { GalleryUpdateEmail, subject as galleryUpdateSubject } from 'src/emails/gallery-update.email';
 import { NoFaceDetectedEmail, subject as noFaceSubject } from 'src/emails/no-face-detected.email';
 import { SelfieReceivedEmail, subject as selfieReceivedSubject } from 'src/emails/selfie-received.email';
 import { EmailTemplate, JobName, JobStatus, QueueName } from 'src/enum';
+import { AssetRepository } from 'src/repositories/asset.repository';
+import { ConfigRepository } from 'src/repositories/config.repository';
 import { EmailLogRepository } from 'src/repositories/email-log.repository';
 import { EmailRepository } from 'src/repositories/email.repository';
 import { EventRepository } from 'src/repositories/event.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
 import { ParticipantRepository } from 'src/repositories/participant.repository';
+import { EventExpiryService } from 'src/services/event-expiry.service';
 import { GalleryTokenService } from 'src/services/gallery-token.service';
 import { JobOf } from 'src/types';
 
@@ -22,8 +26,11 @@ export const DIGEST_THROTTLE_MS = 6 * 60 * 60 * 1000; // ≥6h between digests
 @Injectable()
 export class NotificationService {
   constructor(
+    private assetRepository: AssetRepository,
+    private configRepository: ConfigRepository,
     private emailLogRepository: EmailLogRepository,
     private emailRepository: EmailRepository,
+    private eventExpiryService: EventExpiryService,
     private eventRepository: EventRepository,
     private galleryTokenService: GalleryTokenService,
     private logger: LoggingRepository,
@@ -40,9 +47,11 @@ export class NotificationService {
     if (!context) {
       return JobStatus.Skipped;
     }
-    const { participant, eventName, galleryUrl } = context;
+    const { participant, eventName, galleryUrl, expiresAt } = context;
 
-    const props = { eventName, galleryUrl };
+    // Told up front, in the first message they get, so nobody discovers the
+    // deadline only after the gallery has already closed.
+    const props = { eventName, galleryUrl, expiresAt };
     return this.send(
       participant,
       EmailTemplate.SelfieReceived,
@@ -166,8 +175,85 @@ export class NotificationService {
       participant,
       eventName: event.name,
       eventSlug: event.slug,
+      expiresAt: event.expiresAt,
       galleryUrl: rawToken ? this.galleryTokenService.galleryUrl(rawToken) : '',
     };
+  }
+
+  // Organizer-facing. Unlike every other job here the recipients are staff,
+  // so there is no participant and no gallery token — the email links to the
+  // event page in the app, where the extend/delete actions live behind the
+  // normal login rather than a magic link.
+  @OnJob({ name: JobName.SendEventExpiry, queue: QueueName.Notification })
+  async handleSendEventExpiry({ eventId }: JobOf<JobName.SendEventExpiry>): Promise<JobStatus> {
+    const event = await this.eventRepository.getById(eventId);
+    if (!event || event.deletedAt || !event.expiresAt || !event.purgeAfter) {
+      this.logger.warn(`SendEventExpiry skipped — event ${eventId} missing or no longer expiring`);
+      return JobStatus.Skipped;
+    }
+
+    const owners = await this.eventExpiryService.getOwnerEmails(event.orgId);
+    if (owners.length === 0) {
+      // Nothing we can do from here, but the purge still goes ahead — so this
+      // needs to be loud enough to notice in the log.
+      this.logger.error(`Event ${eventId} expired but its organization has no owner to notify`);
+      return JobStatus.Skipped;
+    }
+
+    const assetCount = await this.assetRepository.countForEvent(eventId);
+    const manageUrl = `${this.configRepository.getEnv().publicBaseUrl}/events/${eventId}/settings`;
+
+    let failed = 0;
+    for (const owner of owners) {
+      const props = {
+        eventName: event.name,
+        organizerName: owner.name,
+        expiresAt: event.expiresAt,
+        purgeAfter: event.purgeAfter,
+        assetCount,
+        manageUrl,
+      };
+      const ok = await this.sendToAddress(
+        { eventId, toEmail: owner.email },
+        EmailTemplate.EventExpired,
+        eventExpiredSubject(props),
+        createElement(EventExpiredEmail, props),
+      );
+      if (!ok) {
+        failed++;
+      }
+    }
+
+    // Partial success still counts: retrying would re-mail the owners who did
+    // receive it, and the expiry mark has already been written.
+    return failed === owners.length ? JobStatus.Failed : JobStatus.Success;
+  }
+
+  private async sendToAddress(
+    context: { eventId: string; toEmail: string },
+    template: EmailTemplate,
+    subject: string,
+    element: Parameters<EmailRepository['renderEmail']>[0],
+  ): Promise<boolean> {
+    const logId = await this.emailLogRepository.create({
+      eventId: context.eventId,
+      participantId: null,
+      toEmail: context.toEmail,
+      template,
+      subject,
+    });
+
+    try {
+      const { html, text } = await this.emailRepository.renderEmail(element);
+      const messageId = await this.emailRepository.sendEmail({ to: context.toEmail, subject, html, text });
+      await this.emailLogRepository.markSent(logId, messageId);
+      this.logger.log(`Sent ${template} to ${context.toEmail}`);
+      return true;
+    } catch (error) {
+      await this.emailLogRepository.markFailed(logId, `${error}`);
+      this.logger.error(`Failed to send ${template} to ${context.toEmail}: ${error}`);
+      return false;
+    }
   }
 
   private async send(

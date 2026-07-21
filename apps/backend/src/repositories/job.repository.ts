@@ -88,14 +88,24 @@ export class JobRepository {
   }
 
   startWorkers() {
-    const { bull, workers, excludedQueues } = this.configRepository.getEnv();
+    const { bull, workers, excludedQueues, includedQueues } = this.configRepository.getEnv();
     for (const queueName of Object.values(QueueName)) {
-      if (!workers.includes(QUEUE_ROLES[queueName])) {
+      // A queue runs when this process holds its role, or when the deployment
+      // explicitly opted in via EL_QUEUES_INCLUDE (e.g. `selfie` on the API
+      // host, so participant intake does not wait on the GPU box).
+      const ownsRole = workers.includes(QUEUE_ROLES[queueName]);
+      const optedIn = includedQueues.includes(queueName);
+      if (!ownsRole && !optedIn) {
         continue;
       }
+      // Exclude always wins — it is what keeps facialRecognition to exactly
+      // one consumer across the fleet.
       if (excludedQueues.includes(queueName)) {
         this.logger.log(`Skipping queue (EL_QUEUES_EXCLUDE): ${queueName}`);
         continue;
+      }
+      if (optedIn && !ownsRole) {
+        this.logger.log(`Starting out-of-role queue (EL_QUEUES_INCLUDE): ${queueName}`);
       }
       this.logger.debug(`Starting worker for queue: ${queueName}`);
       const worker = new Worker(queueName, (job) => this.run(job as JobItem), {
@@ -129,6 +139,14 @@ export class JobRepository {
       { queue: QueueName.Background, name: JobName.StorageReconcile, pattern: '0 3 * * *' },
       { queue: QueueName.Background, name: JobName.SessionCleanup, pattern: '30 3 * * *' },
       { queue: QueueName.Background, name: JobName.PersonCleanup, pattern: '0 4 * * *' },
+      // Hourly: close expired events and tell their owners. Deliberately more
+      // frequent than the purge — the notification is the useful half.
+      { queue: QueueName.Background, name: JobName.EventExpirySweep, pattern: '5 * * * *' },
+      // Daily, well after the expiry sweep so the grace period is honoured.
+      { queue: QueueName.StorageCleanup, name: JobName.EventPurgeSweep, pattern: '0 5 * * *' },
+      // Frequent: this is what decides whether the GPU box wakes or shuts down,
+      // so its resolution is the worst-case delay on both.
+      { queue: QueueName.Background, name: JobName.GpuLifecycleSweep, pattern: '*/2 * * * *' },
     ];
 
     for (const { queue, name, pattern } of crons) {
@@ -186,6 +204,15 @@ export class JobRepository {
     const queue = this.getQueue(name);
     const jobs = await queue.getFailed();
     await Promise.all(jobs.map((job) => job.retry()));
+  }
+
+  // Enqueue time of the longest-waiting job, or undefined when nothing is
+  // waiting. Drives the "one job has been stuck for two hours" wake-up, which
+  // the depth threshold alone would never trigger.
+  async getOldestWaitingTimestamp(name: QueueName): Promise<number | undefined> {
+    // BullMQ returns waiting jobs oldest-first, so one entry is enough.
+    const [job] = await this.getQueue(name).getJobs(['waiting'], 0, 0, true);
+    return job?.timestamp;
   }
 
   getJobCounts(name: QueueName): Promise<JobCounts> {

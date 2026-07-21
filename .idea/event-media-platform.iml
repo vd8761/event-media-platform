@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="JAVA_MODULE" version="4">
+  <component name="NewModuleRootManager" inherit-compiler-output="true">
+    <exclude-output />
+    <content url="file://$MODULE_DIR$">
+      <excludeFolder url="file://$MODULE_DIR$/immich/mobile/.dart_tool" />
+      <excludeFolder url="file://$MODULE_DIR$/immich/mobile/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/immich/mobile/build" />
+      <excludeFolder url="file://$MODULE_DIR$/immich/mobile/openapi/.dart_tool" />
+      <excludeFolder url="file://$MODULE_DIR$/immich/mobile/openapi/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/immich/mobile/openapi/build" />
+      <excludeFolder url="file://$MODULE_DIR$/immich/mobile/packages/ui/.dart_tool" />
+      <excludeFolder url="file://$MODULE_DIR$/immich/mobile/packages/ui/.pub" />
+      <excludeFolder url="file://$MODULE_DIR$/immich/mobile/packages/ui/build" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

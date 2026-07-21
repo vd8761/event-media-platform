@@ -23,12 +23,17 @@ import { isStartUpError } from 'src/utils/misc';
 async function bootstrap() {
   process.title = 'eventlens';
   const configRepository = new ConfigRepository();
-  const { workers, port, host, database } = configRepository.getEnv();
+  const { workers, port, host, database, includedQueues } = configRepository.getEnv();
   const isApi = workers.includes(WorkerRole.Api);
-  const hasConsumers = workers.includes(WorkerRole.Ingest) || workers.includes(WorkerRole.Media);
+  // EL_QUEUES_INCLUDE can give an api-only process consumers, so the queue
+  // roles alone no longer decide whether workers start.
+  const hasConsumers =
+    workers.includes(WorkerRole.Ingest) || workers.includes(WorkerRole.Media) || includedQueues.length > 0;
 
   const app = isApi
-    ? await NestFactory.create<NestExpressApplication>(ApiModule, { bufferLogs: true })
+    ? // rawBody: the Resend webhook signature is computed over the exact bytes
+      // received, so the parsed body cannot be used to verify it.
+      await NestFactory.create<NestExpressApplication>(ApiModule, { bufferLogs: true, rawBody: true })
     : await NestFactory.createApplicationContext(WorkerModule, { bufferLogs: true });
 
   const logger = await app.resolve(LoggingRepository);
@@ -50,7 +55,9 @@ async function bootstrap() {
   if (workers.includes(WorkerRole.Ingest)) {
     await jobRepository.registerCronSchedules();
   }
-  if (workers.includes(WorkerRole.Media)) {
+  // Any process that runs ML-backed queues wants the health map warm — that
+  // includes an API host which opted into `selfie` via EL_QUEUES_INCLUDE.
+  if (workers.includes(WorkerRole.Media) || includedQueues.length > 0) {
     // the worker gates face jobs on ML /ping health (docs/plan/11 §2)
     app.get(MachineLearningRepository).startAvailabilityChecks();
   }
@@ -58,6 +65,10 @@ async function bootstrap() {
   // Every process publishes its own host (and GPU, where there is one) to
   // Redis so the admin system panel can show machines it is not running on.
   app.get(TelemetryRepository).startHeartbeat();
+
+  // Lets TelemetryRepository drop its heartbeat key on SIGTERM/SIGINT instead
+  // of leaving a ghost machine on the panel until the TTL expires.
+  app.enableShutdownHooks();
 
   if (isApi) {
     const httpApp = app as NestExpressApplication;

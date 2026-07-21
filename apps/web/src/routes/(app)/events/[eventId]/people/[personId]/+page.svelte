@@ -3,9 +3,10 @@
   // justified timeline and viewer as the event gallery, scoped to one person.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, downloadSelectionZip, type AssetItem } from '$lib/api';
+  import { api, downloadSelectionZip, uploadAsset, type AssetItem } from '$lib/api';
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
   import PhotoViewer from '$lib/components/PhotoViewer.svelte';
+  import Scrubber from '$lib/components/Scrubber.svelte';
   import SelectionBar from '$lib/components/SelectionBar.svelte';
   import { Button, Heading, Icon, IconButton, Input, LoadingSpinner, Modal, ModalBody, ModalFooter } from '@immich/ui';
   import { mdiArrowLeft, mdiCheckCircleOutline, mdiEye, mdiEyeOff, mdiImageOff, mdiPencil } from '@mdi/js';
@@ -22,9 +23,11 @@
   let assets = $state<AssetItem[]>([]);
   let loading = $state(true);
   let viewerIndex = $state(-1);
+  let timelineEl = $state<HTMLElement | null>(null);
 
-  let selecting = $state(false);
   let selected = $state(new Set<string>());
+  let selectMode = $state(false);
+  const selecting = $derived(selected.size > 0 || selectMode);
   let downloading = $state(false);
 
   let renaming = $state(false);
@@ -47,7 +50,7 @@
     person = null;
     assets = [];
     viewerIndex = -1;
-    selecting = false;
+    selectMode = false;
     selected = new Set();
 
     void Promise.all([api.people.get(eventId, id), api.people.assets(eventId, id)])
@@ -64,16 +67,6 @@
       cancelled = true;
     };
   });
-
-  function toggleSelect(assetId: string) {
-    const next = new Set(selected);
-    if (next.has(assetId)) {
-      next.delete(assetId);
-    } else {
-      next.add(assetId);
-    }
-    selected = next;
-  }
 
   async function downloadSelected() {
     downloading = true;
@@ -152,7 +145,7 @@
       </Button>
     {/if}
     {#if assets.length > 0 && !selecting}
-      <Button size="small" variant="outline" leadingIcon={mdiCheckCircleOutline} onclick={() => (selecting = true)}>
+      <Button size="small" variant="outline" leadingIcon={mdiCheckCircleOutline} onclick={() => (selectMode = true)}>
         Select
       </Button>
     {/if}
@@ -166,7 +159,7 @@
     {downloading}
     onSelectAll={() => (selected = new Set(assets.map((asset) => asset.id)))}
     onClear={() => {
-      selecting = false;
+      selectMode = false;
       selected = new Set();
     }}
     onDownload={downloadSelected}
@@ -181,7 +174,12 @@
     No photos for this person yet.
   </div>
 {:else}
-  <PhotoTimeline {assets} {selecting} {selected} onToggleSelect={toggleSelect} onOpen={(index) => (viewerIndex = index)} />
+  <div class="md:pe-[60px]">
+    <div bind:this={timelineEl}>
+      <PhotoTimeline {assets} bind:selected {selectMode} onOpen={(index) => (viewerIndex = index)} />
+    </div>
+  </div>
+  <Scrubber timelineElement={timelineEl} revision={assets.length} />
 {/if}
 
 {#if viewerIndex >= 0 && assets[viewerIndex]}
@@ -192,6 +190,18 @@
     loadDetail={(assetId) => api.assets.get(eventId, assetId)}
     onOpenPerson={(id) => goto(`/events/${eventId}/people/${id}`)}
     onSetPersonCover={canManage ? setCover : undefined}
+    canEdit={canManage}
+    imageProxyUrl={(assetId) => api.assets.imageUrl(eventId, assetId)}
+    onEditSave={async (file) => {
+      await uploadAsset(eventId, file, () => {});
+      await refresh();
+    }}
+    onRefreshFaces={canManage ? (assetId) => api.assets.runJob(eventId, assetId, 'faceDetection', true) : undefined}
+    onViewInTimeline={(assetId) => {
+      viewerIndex = -1;
+      goto(`/events/${eventId}?asset=${assetId}`);
+    }}
+    onViewSimilar={(assetId) => goto(`/events/${eventId}/similar/${assetId}`)}
     onClose={() => (viewerIndex = -1)}
     onIndexChange={(index) => (viewerIndex = index)}
   />

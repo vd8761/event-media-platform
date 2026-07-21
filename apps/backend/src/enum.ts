@@ -13,6 +13,7 @@ export enum QueueName {
   VideoTranscode = 'videoTranscode',
   FaceDetection = 'faceDetection',
   FacialRecognition = 'facialRecognition',
+  SmartSearch = 'smartSearch',
   PersonThumbnail = 'personThumbnail',
   Selfie = 'selfie',
   // ingest role (main VM)
@@ -29,6 +30,8 @@ export enum JobName {
   FaceDetect = 'FaceDetect',
   FaceRecognize = 'FaceRecognize',
   FaceRecognizeQueueAll = 'FaceRecognizeQueueAll',
+  SmartSearch = 'SmartSearch',
+  SmartSearchQueueAll = 'SmartSearchQueueAll',
   PersonThumbnail = 'PersonThumbnail',
   SelfieProcess = 'SelfieProcess',
   ImportFolder = 'ImportFolder',
@@ -46,6 +49,10 @@ export enum JobName {
   SessionCleanup = 'SessionCleanup',
   StorageReconcile = 'StorageReconcile',
   PersonCleanup = 'PersonCleanup',
+  SendEventExpiry = 'SendEventExpiry',
+  EventExpirySweep = 'EventExpirySweep',
+  EventPurgeSweep = 'EventPurgeSweep',
+  GpuLifecycleSweep = 'GpuLifecycleSweep',
 }
 
 export enum JobStatus {
@@ -168,15 +175,29 @@ export enum EmailTemplate {
   GalleryReady = 'gallery-ready',
   GalleryUpdate = 'gallery-update',
   NoFaceDetected = 'no-face-detected',
+  // Organizer-facing, unlike the four above.
+  EventExpired = 'event-expired',
 }
 
+// queued → sent (provider accepted) → delivered | bounced | complained.
+// The terminal three only arrive if the Resend webhook is configured;
+// `failed` means we could not hand the message over at all.
 export enum EmailStatus {
   Queued = 'queued',
   Sent = 'sent',
+  Delivered = 'delivered',
+  Bounced = 'bounced',
+  Complained = 'complained',
   Failed = 'failed',
 }
 
 export enum SystemConfigKey {
   FacialRecognition = 'facialRecognition',
   Smtp = 'smtp',
+  // How long expired events keep their media before it is purged from R2.
+  EventRetention = 'eventRetention',
+  // When the GPU box should be woken, and how it is started/stopped.
+  GpuAutostart = 'gpuAutostart',
+  // Mutable lifecycle state for that box — written by the sweep, not by hand.
+  GpuLifecycle = 'gpuLifecycle',
 }

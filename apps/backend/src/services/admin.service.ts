@@ -4,7 +4,12 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Kysely, sql } from 'kysely';
 import { InjectKysely } from 'nestjs-kysely';
 import { arch, cpus, freemem, platform, totalmem, uptime } from 'node:os';
-import { JobName, QueueCleanType, QueueName } from 'src/enum';
+import { JobName, QueueCleanType, QueueName, SystemConfigKey } from 'src/enum';
+import {
+  EventRetentionConfig,
+  GpuAutostartConfig,
+  SystemConfigRepository,
+} from 'src/repositories/system-config.repository';
 import { ConfigRepository } from 'src/repositories/config.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { MachineLearningRepository } from 'src/repositories/machine-learning.repository';
@@ -35,6 +40,11 @@ const QUEUE_INFO: Record<QueueName, { label: string; description: string; jobs: 
     label: 'Facial recognition',
     description: 'Clusters detected faces into people. Runs single-threaded so clusters stay unique.',
     jobs: [JobName.FaceRecognize, JobName.FaceRecognizeQueueAll],
+  },
+  [QueueName.SmartSearch]: {
+    label: 'Smart search',
+    description: 'Computes a CLIP visual embedding for each photo, powering "view similar photos".',
+    jobs: [JobName.SmartSearch, JobName.SmartSearchQueueAll],
   },
   [QueueName.PersonThumbnail]: {
     label: 'Person thumbnails',
@@ -80,6 +90,7 @@ export class AdminService {
     private configRepository: ConfigRepository,
     private jobRepository: JobRepository,
     private machineLearningRepository: MachineLearningRepository,
+    private systemConfigRepository: SystemConfigRepository,
     private telemetryRepository: TelemetryRepository,
   ) {}
 
@@ -106,7 +117,16 @@ export class AdminService {
         eb.selectFrom('asset').where('deletedAt', 'is', null).select(sql<number>`count(*)::int`.as('count')).as('assets'),
         eb.selectFrom('asset').where('deletedAt', 'is', null).select(sql<number>`coalesce(sum(file_size), 0)::bigint`.as('sum')).as('storageBytes'),
         eb.selectFrom('person').select(sql<number>`count(*)::int`.as('count')).as('people'),
-        eb.selectFrom('participant').where('deletedAt', 'is', null).select(sql<number>`count(*)::int`.as('count')).as('participants'),
+        // Joined through event so this matches the per-organization rows
+        // below: a participant whose event was deleted has no gallery left,
+        // and counting them here would make the column stop adding up.
+        eb
+          .selectFrom('participant')
+          .innerJoin('event', 'event.id', 'participant.eventId')
+          .where('participant.deletedAt', 'is', null)
+          .where('event.deletedAt', 'is', null)
+          .select(sql<number>`count(*)::int`.as('count'))
+          .as('participants'),
       ])
       .execute();
     return row;
@@ -296,6 +316,22 @@ export class AdminService {
     } catch {
       return 'unavailable';
     }
+  }
+
+  // Merge-on-write: the panel sends only the fields it changed, so a partial
+  // save must not blank the rest of the config.
+  async updateGpuAutostart(dto: Partial<GpuAutostartConfig>): Promise<GpuAutostartConfig> {
+    const current = await this.systemConfigRepository.getGpuAutostartConfig();
+    const next = { ...current, ...dto };
+    await this.systemConfigRepository.set(SystemConfigKey.GpuAutostart, next);
+    return next;
+  }
+
+  async updateEventRetention(dto: Partial<EventRetentionConfig>): Promise<EventRetentionConfig> {
+    const current = await this.systemConfigRepository.getEventRetentionConfig();
+    const next = { ...current, ...dto };
+    await this.systemConfigRepository.set(SystemConfigKey.EventRetention, next);
+    return next;
   }
 
   async runQueueAction(name: string, action: QueueAction): Promise<void> {

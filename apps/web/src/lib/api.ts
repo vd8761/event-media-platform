@@ -6,10 +6,32 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    // Full parsed error body. A 410 from an expired gallery carries the event
+    // name and dates, which the participant-facing page needs to explain what
+    // happened rather than just saying "invalid link".
+    public body?: Record<string, unknown>,
   ) {
     super(message);
   }
 }
+
+// Shape of the 410 an expired event returns (see public.service resolveGallery).
+export interface ExpiredEventInfo {
+  eventName: string;
+  expiredAt: string | null;
+  purged: boolean;
+}
+
+export const asExpiredEvent = (error: unknown): ExpiredEventInfo | null => {
+  if (error instanceof ApiError && error.status === 410 && error.body) {
+    return {
+      eventName: String(error.body.eventName ?? 'This event'),
+      expiredAt: (error.body.expiredAt as string) ?? null,
+      purged: Boolean(error.body.purged),
+    };
+  }
+  return null;
+};
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -22,13 +44,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (!response.ok) {
     let message = response.statusText;
+    let body: Record<string, unknown> | undefined;
     try {
-      const body = await response.json();
-      message = Array.isArray(body.message) ? body.message.join(', ') : (body.message ?? message);
+      body = await response.json();
+      message = Array.isArray(body?.message) ? body.message.join(', ') : ((body?.message as string) ?? message);
     } catch {
       // not json
     }
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, message, body);
   }
 
   if (response.status === 204) {
@@ -75,6 +98,16 @@ export interface EventItem {
   participantsSeeAllPhotos: boolean;
   participantsCanDownloadAll: boolean;
   config: { matchMaxDistance?: number; minScore?: number; minFaces?: number };
+  // Sidebar thumbnail. null means "use the event's most recent photo".
+  coverAssetId: string | null;
+  // Expiration. expiresAt closes the guest links; purgeAfter is when the media
+  // leaves R2. purgedAt being set means the photos are gone for good and
+  // extending can no longer bring them back.
+  expiresAt: string | null;
+  expiryNotifiedAt: string | null;
+  expiryAcknowledgedAt: string | null;
+  purgeAfter: string | null;
+  purgedAt: string | null;
   orgName?: string;
 }
 
@@ -219,6 +252,115 @@ export interface InstanceStatus {
   reportedAt: string;
 }
 
+// --- app shell ---
+
+export interface SidebarEvent {
+  id: string;
+  name: string;
+  slug: string;
+  status: 'draft' | 'active' | 'closed';
+  startsAt: string | null;
+  expiresAt: string | null;
+  purgedAt: string | null;
+  assetCount: number;
+  // Falls back to the event's newest photo when no cover has been picked.
+  coverUrl: string | null;
+}
+
+export interface OrgShell {
+  // Includes media belonging to soft-deleted events — those bytes are still
+  // in R2 until the purge sweep runs.
+  storage: { bytes: number; assets: number };
+  events: SidebarEvent[];
+}
+
+export interface OrgNotification {
+  id: string;
+  level: 'info' | 'warning';
+  title: string;
+  body: string;
+  eventId: string;
+  at: string;
+}
+
+// Timeline item carrying its event, so the org-wide view can label and link.
+export interface OrgTimelineAsset {
+  id: string;
+  eventId: string;
+  eventName: string;
+  type: string;
+  status: string;
+  originalFilename: string;
+  capturedAt: string | null;
+  createdAt: string | null;
+  width: number | null;
+  height: number | null;
+  thumbhash: string | null;
+  thumbUrl: string | null;
+  previewUrl: string | null;
+}
+
+// Map marker: one geotagged photo (Immich MapMarkerResponseDto, minus the
+// reverse-geocoded place fields we don't populate yet).
+export interface MapMarker {
+  id: string;
+  eventId: string;
+  lat: number;
+  lon: number;
+  thumbUrl: string | null;
+}
+
+// Org-wide person: a cluster carrying its event, for the People grid.
+export interface OrgPerson {
+  id: string;
+  eventId: string;
+  eventName: string;
+  name: string | null;
+  faceCount: number;
+  thumbnailUrl: string | null;
+}
+
+export interface GpuAutostartConfig {
+  enabled: boolean;
+  pendingThreshold: number;
+  maxPendingAgeMinutes: number;
+  idleShutdownMinutes: number;
+  startTimeoutMinutes: number;
+  startWebhookUrl: string;
+  stopWebhookUrl: string;
+  webhookAuthHeader: string;
+}
+
+export interface GpuLifecycleState {
+  state: 'off' | 'starting' | 'running' | 'stopping';
+  since: string;
+  holdUntil: string | null;
+  lastStartedAt: string | null;
+  lastStoppedAt: string | null;
+  lastError: string | null;
+}
+
+export interface GpuQueueSummary {
+  name: string;
+  waiting: number;
+  active: number;
+  delayed: number;
+  failed: number;
+  oldestWaitingAgeSeconds: number | null;
+}
+
+export interface GpuStatusResponse {
+  config: GpuAutostartConfig;
+  state: GpuLifecycleState;
+  queues: GpuQueueSummary[];
+  pending: number;
+  workerOnline: boolean;
+  oldestPendingAgeSeconds: number | null;
+  // Why the box is or is not running, so the panel never leaves an operator
+  // guessing at the thresholds.
+  trigger: { shouldStart: boolean; reason: string };
+}
+
 export interface SystemStatus {
   machineLearning: {
     device: 'cpu' | 'cuda';
@@ -343,10 +485,26 @@ export const api = {
         `/admin/queues/${name}/failed`,
       ),
     system: () => get<SystemStatus>('/admin/system'),
+    gpu: () => get<GpuStatusResponse>('/admin/gpu'),
+    updateGpuConfig: (body: Partial<GpuAutostartConfig>) => put<GpuAutostartConfig>('/admin/gpu/config', body),
+    startGpu: () => post<GpuLifecycleState>('/admin/gpu/start', {}),
+    stopGpu: () => post<GpuLifecycleState>('/admin/gpu/stop', {}),
+    updateRetention: (body: { purgeGraceHours: number }) =>
+      put<{ purgeGraceHours: number }>('/admin/retention', body),
   },
 
   // --- orgs & events ---
   orgs: {
+    // Everything the app shell needs in one call: sidebar events with covers
+    // plus the storage footer.
+    shell: (orgId: string) => get<OrgShell>(`/orgs/${orgId}/shell`),
+    notifications: (orgId: string) => get<{ items: OrgNotification[]; unread: number }>(`/orgs/${orgId}/notifications`),
+    assets: (orgId: string, cursor?: string, limit = 120) =>
+      get<{ assets: OrgTimelineAsset[]; nextCursor: string | null }>(
+        `/orgs/${orgId}/assets?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+      ),
+    people: (orgId: string) => get<OrgPerson[]>(`/orgs/${orgId}/people`),
+    mapMarkers: (orgId: string) => get<MapMarker[]>(`/orgs/${orgId}/map-markers`),
     members: (orgId: string) =>
       get<{ userId: string; email: string; name: string; role: string }[]>(`/orgs/${orgId}/members`),
     addMember: (orgId: string, body: { email: string; name?: string; password?: string; role: string }) =>
@@ -364,6 +522,14 @@ export const api = {
     processing: (eventId: string) => get<ProcessingStatus>(`/events/${eventId}/processing`),
     reprocessFaces: (eventId: string, force = false) =>
       post<{ queued: number }>(`/events/${eventId}/reprocess-faces`, { force }),
+    // Expiration. `extend` with null clears the expiry entirely and cancels
+    // any scheduled purge; `purge` skips the grace period and is irreversible.
+    extendExpiry: (eventId: string, expiresAt: string | null) =>
+      post<EventItem>(`/events/${eventId}/expiry/extend`, { expiresAt }),
+    acknowledgeExpiry: (eventId: string) => post<EventItem>(`/events/${eventId}/expiry/acknowledge`, {}),
+    setCover: (eventId: string, assetId: string | null) =>
+      put<EventItem>(`/events/${eventId}/cover`, { assetId }),
+    purgeExpired: (eventId: string) => post<EventItem>(`/events/${eventId}/expiry/purge`, {}),
   },
 
   // --- assets ---
@@ -381,7 +547,15 @@ export const api = {
         { assets },
       ),
     remove: (eventId: string, ids: string[]) => del<{ deleted: number }>(`/events/${eventId}/assets`, { ids }),
+    random: (eventId: string, limit = 15) => get<AssetItem[]>(`/events/${eventId}/assets/random?limit=${limit}`),
+    // CLIP nearest-neighbours for "view similar photos", ranked most-similar
+    // first. Empty until the asset's embedding has been computed.
+    similar: (eventId: string, assetId: string) => get<AssetItem[]>(`/events/${eventId}/assets/${assetId}/similar`),
     downloadUrl: (eventId: string, assetId: string) => `/api/events/${eventId}/assets/${assetId}/download`,
+    // Same-origin bytes for canvas-reading viewer features (copy image, the
+    // editor's crop export) — the presigned R2 URL is cross-origin with no
+    // CORS headers, which taints any canvas drawn from it.
+    imageUrl: (eventId: string, assetId: string) => `/api/events/${eventId}/assets/${assetId}/image`,
     downloadManyUrl: (eventId: string) => `/api/events/${eventId}/assets/download`,
     runJob: (eventId: string, assetId: string, name: string, force?: boolean) =>
       post<void>(`/events/${eventId}/assets/${assetId}/jobs`, { name, force }),

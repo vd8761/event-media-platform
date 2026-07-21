@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
   import { api, ApiError } from '$lib/api';
+  import { shellStore } from '$lib/shell.svelte';
   import { Alert, Badge, Button, Heading, Input, Modal, ModalBody, ModalFooter } from '@immich/ui';
   import { mdiPlus } from '@mdi/js';
   import { DateTime } from 'luxon';
@@ -42,6 +43,8 @@
       await api.events.create(orgId, { name, slug });
       showCreate = false;
       await invalidateAll();
+      // The sidebar caches its event list separately from this page's data.
+      await shellStore.refresh();
     } catch (err) {
       error = err instanceof ApiError ? err.message : 'Failed to create event';
     } finally {

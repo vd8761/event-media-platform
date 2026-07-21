@@ -24,6 +24,7 @@ import { OrgRole } from 'src/enum';
 import { FileUploadInterceptor, getStagedUpload } from 'src/middleware/file-upload.interceptor';
 import { Authenticated } from 'src/middleware/auth.guard';
 import { AssetService } from 'src/services/asset.service';
+import { SmartSearchService } from 'src/services/smart-search.service';
 import { UploadService } from 'src/services/upload.service';
 import { BadRequestException } from '@nestjs/common';
 
@@ -32,6 +33,7 @@ import { BadRequestException } from '@nestjs/common';
 export class AssetController {
   constructor(
     private assetService: AssetService,
+    private smartSearchService: SmartSearchService,
     private uploadService: UploadService,
   ) {}
 
@@ -62,6 +64,24 @@ export class AssetController {
     return this.assetService.list(eventId, query.limit, query.cursor, query.faceStatus);
   }
 
+  // Random sample for the Memories slideshow. Registered ahead of `:assetId`
+  // so "random" is never swallowed by that param route.
+  @Get('random')
+  @Authenticated({ orgRole: OrgRole.Member })
+  random(@Param('eventId') eventId: string, @Query('limit') limit?: string) {
+    const parsed = Math.min(Math.max(Number.parseInt(limit ?? '', 10) || 15, 1), 30);
+    return this.assetService.randomForEvent(eventId, parsed);
+  }
+
+  // "View similar photos": CLIP nearest-neighbours of this asset, event-scoped.
+  // Registered before `:assetId` so "similar" is not captured as an id.
+  @Get(':assetId/similar')
+  @Authenticated({ orgRole: OrgRole.Member })
+  async similar(@Param('eventId') eventId: string, @Param('assetId') assetId: string) {
+    const ids = await this.smartSearchService.findSimilar(eventId, assetId);
+    return this.assetService.listByIds(eventId, ids);
+  }
+
   @Get(':assetId')
   @Authenticated({ orgRole: OrgRole.Member })
   get(@Param('eventId') eventId: string, @Param('assetId') assetId: string) {
@@ -73,6 +93,15 @@ export class AssetController {
   async download(@Param('eventId') eventId: string, @Param('assetId') assetId: string, @Res() res: Response) {
     const url = await this.assetService.getDownloadUrl(eventId, assetId);
     res.redirect(302, url);
+  }
+
+  // Same-origin image bytes for canvas-based viewer features (copy image,
+  // the editor's crop export) — see AssetService.streamPreview for why this
+  // can't just be the presigned R2 URL.
+  @Get(':assetId/image')
+  @Authenticated({ orgRole: OrgRole.Member })
+  async image(@Param('eventId') eventId: string, @Param('assetId') assetId: string, @Res() res: Response) {
+    await this.assetService.streamPreview(eventId, assetId, res);
   }
 
   // Multi-select download (POST because the id list can be long).

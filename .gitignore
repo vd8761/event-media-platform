@@ -12,3 +12,6 @@ coverage/
 Thumbs.db
 /staging/
 /cache/
+.claude/
+immich/
+immich/

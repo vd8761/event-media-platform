@@ -120,7 +120,10 @@ Config is resolved once at boot in `src/repositories/config.repository.ts`. Unse
 |---|---|---|---|
 | `EL_WORKERS_INCLUDE` | `api,ingest` | `api,ingest` on the API host, `media` on the GPU host | `api,ingest,media` to run everything in one process |
 | `EL_WORKERS_EXCLUDE` | — | Rarely used; subtracts roles from the include set. | — |
-| `EL_QUEUES_EXCLUDE` | — | `facialRecognition` on the 2nd..Nth GPU host only. | — |
+| `EL_QUEUES_EXCLUDE` | — | `facialRecognition` on the 2nd..Nth GPU host only. Also used to hand `selfie` over to the API host. | — |
+| `EL_QUEUES_INCLUDE` | — | Run a queue outside this process's role — e.g. `selfie` on the API host so participant intake does not wait on the GPU box. Requires a reachable `MACHINE_LEARNING_URL`. | — |
+
+`EL_QUEUES_EXCLUDE` always wins over `EL_QUEUES_INCLUDE`; naming the same queue in both is a startup error rather than a silent precedence rule.
 
 ### Database
 
@@ -226,7 +229,8 @@ Cloud import is disabled until these are set; connect buttons return "provider i
 | `EL_PUBLIC_BASE_URL` | `http://localhost:3001` | **Your public HTTPS origin** (e.g. `https://events.example.com`). Used for email links and OAuth redirects. | `http://localhost:5173` — the Vite origin, so gallery links in Mailpit are clickable. |
 | `EL_TOKEN_ENCRYPTION_KEY` | — | **32-byte hex, required.** Encrypts gallery tokens and Drive/OneDrive refresh tokens. Generate with `openssl rand -hex 32` and **back it up like a DB credential** — losing it forces every org to reconnect (risk R11). | Optional; derived automatically when `EL_ENV=development`. |
 | `EL_SESSION_TTL_DAYS` | `90` | | |
-| `EL_PORT` | `3001` | | |
+| `EL_PORT` | `3001` | Optional on a PaaS — falls back to the injected `PORT` when unset. | |
+| `RESEND_WEBHOOK_SECRET` | — | Svix signing secret for `POST /api/webhooks/resend`. Without it the endpoint 401s everything. | Not needed. |
 | `EL_HOST` | — | Bind address; leave unset to listen on all interfaces inside the container. | |
 | `EL_ENV` | `production` | `production` | `development` |
 | `EL_LOG_LEVEL` | `log` | `verbose`\|`debug`\|`log`\|`warn`\|`error`\|`fatal` | `debug` is useful. |

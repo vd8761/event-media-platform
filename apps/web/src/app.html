@@ -3,7 +3,31 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
     <title>EventLens</title>
+    <!-- Applies the stored theme before first paint. Inline and synchronous on
+         purpose: anything deferred lets a dark-by-default app flash white on
+         every cold load. Keep in sync with src/lib/theme.svelte.ts. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('eventlens-theme');
+          if (t !== 'oled' && t !== 'dark' && t !== 'light') {
+            t = 'oled';
+          }
+          var r = document.documentElement;
+          if (t !== 'light') {
+            r.classList.add('dark');
+          }
+          if (t === 'oled') {
+            r.classList.add('oled');
+          }
+          r.style.colorScheme = t === 'light' ? 'light' : 'dark';
+        } catch (e) {
+          document.documentElement.classList.add('dark', 'oled');
+        }
+      })();
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover" class="bg-immich-bg dark:bg-immich-dark-bg">

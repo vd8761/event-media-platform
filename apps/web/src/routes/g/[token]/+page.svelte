@@ -3,9 +3,18 @@
   // "Your photos" is always there; "Event photos" only appears when the
   // organiser has shared the whole event.
   import { page } from '$app/state';
-  import { api, downloadSelectionZip, saveBlob, type GalleryAsset, type GalleryResponse } from '$lib/api';
+  import {
+    api,
+    asExpiredEvent,
+    downloadSelectionZip,
+    saveBlob,
+    type ExpiredEventInfo,
+    type GalleryAsset,
+    type GalleryResponse,
+  } from '$lib/api';
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
   import PhotoViewer from '$lib/components/PhotoViewer.svelte';
+  import Scrubber from '$lib/components/Scrubber.svelte';
   import SelectionBar from '$lib/components/SelectionBar.svelte';
   import { Button, Icon, LoadingSpinner } from '@immich/ui';
   import {
@@ -22,7 +31,9 @@
 
   let gallery = $state<GalleryResponse | null>(null);
   let notFound = $state(false);
+  let expired = $state<ExpiredEventInfo | null>(null);
   let viewerIndex = $state(-1);
+  let timelineEl = $state<HTMLElement | null>(null);
   let refreshedOnce = false;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -47,8 +58,9 @@
     }
   }
 
-  let selecting = $state(false);
   let selected = $state(new Set<string>());
+  let selectMode = $state(false);
+  const selecting = $derived(selected.size > 0 || selectMode);
   let downloading = $state(false);
 
   const showAll = $derived(gallery?.event.showAllPhotos ?? false);
@@ -65,8 +77,13 @@
     try {
       gallery = await api.public.gallery(token);
       notFound = false;
-    } catch {
-      notFound = true;
+      expired = null;
+    } catch (error) {
+      // An expired event is a different story from a bad link: the guest's
+      // link was real, so tell them what happened instead of implying they
+      // mistyped something.
+      expired = asExpiredEvent(error);
+      notFound = expired === null;
     }
   }
 
@@ -96,18 +113,8 @@
   }
 
   function clearSelection() {
-    selecting = false;
+    selectMode = false;
     selected = new Set();
-  }
-
-  function toggleSelect(assetId: string) {
-    const next = new Set(selected);
-    if (next.has(assetId)) {
-      next.delete(assetId);
-    } else {
-      next.add(assetId);
-    }
-    selected = next;
   }
 
   async function downloadSelected() {
@@ -154,7 +161,29 @@
 
 <svelte:head><title>Your photos — EventLens</title></svelte:head>
 
-{#if notFound}
+{#if expired}
+  <div class="bg-immich-bg flex min-h-screen items-center justify-center p-4">
+    <div class="md-surface w-full max-w-md p-8 text-center">
+      <p class="md-title-large mb-2">{expired.eventName} has closed</p>
+      <p class="md-body-medium text-gray-600">
+        {#if expired.expiredAt}
+          This gallery was available until {new Date(expired.expiredAt).toLocaleDateString(undefined, {
+            dateStyle: 'long',
+          })} and is no longer open.
+        {:else}
+          This gallery is no longer open.
+        {/if}
+      </p>
+      <p class="md-body-small mt-4 text-gray-500">
+        {#if expired.purged}
+          The event photos have been deleted.
+        {:else}
+          If you still need your photos, contact the event organiser.
+        {/if}
+      </p>
+    </div>
+  </div>
+{:else if notFound}
   <div class="bg-immich-bg flex min-h-screen items-center justify-center p-4">
     <p class="text-gray-500">This gallery link is invalid or has expired.</p>
   </div>
@@ -261,7 +290,7 @@
 
         <div class="flex flex-wrap items-center gap-2">
           {#if assets.length > 0 && canDownloadCurrent && !selecting}
-            <Button size="small" variant="outline" leadingIcon={mdiCheckCircleOutline} onclick={() => (selecting = true)}>
+            <Button size="small" variant="outline" leadingIcon={mdiCheckCircleOutline} onclick={() => (selectMode = true)}>
               Select
             </Button>
           {/if}
@@ -285,6 +314,7 @@
         />
       {/if}
 
+      <div bind:this={timelineEl} class="md:pe-[60px]">
       {#if tab === 'mine' && gallery.assets.length === 0}
         <div class="rounded-2xl border border-dashed border-gray-300 p-16 text-center">
           {#if stillWorking}
@@ -313,9 +343,8 @@
         {/if}
         <PhotoTimeline
           assets={gallery.assets}
-          {selecting}
-          {selected}
-          onToggleSelect={toggleSelect}
+          bind:selected
+          {selectMode}
           onOpen={(index) => (viewerIndex = index)}
           {onImageError}
         />
@@ -325,9 +354,9 @@
         {:else}
           <PhotoTimeline
             assets={personView?.assets ?? []}
-            {selecting}
-            {selected}
-            onToggleSelect={canDownloadAll ? toggleSelect : undefined}
+            bind:selected
+            {selectMode}
+            readonly={!canDownloadAll}
             onOpen={(index) => (viewerIndex = index)}
             {onImageError}
           />
@@ -339,9 +368,9 @@
       {:else}
         <PhotoTimeline
           assets={eventAssets}
-          {selecting}
-          {selected}
-          onToggleSelect={canDownloadAll ? toggleSelect : undefined}
+          bind:selected
+          {selectMode}
+          readonly={!canDownloadAll}
           onOpen={(index) => (viewerIndex = index)}
           {onImageError}
         />
@@ -351,6 +380,9 @@
           </div>
         {/if}
       {/if}
+      </div>
+
+      <Scrubber timelineElement={timelineEl} revision={assets.length} topOffset={0} />
     </main>
   </div>
 {/if}

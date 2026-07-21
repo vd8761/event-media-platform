@@ -16,11 +16,14 @@ export interface BoundingBox {
 
 export enum ModelTask {
   FACIAL_RECOGNITION = 'facial-recognition',
+  // Immich names the CLIP smart-search task 'clip'.
+  SEARCH = 'clip',
 }
 
 export enum ModelType {
   DETECTION = 'detection',
   RECOGNITION = 'recognition',
+  VISUAL = 'visual',
 }
 
 type ModelOptions = { modelName: string };
@@ -33,6 +36,12 @@ export type FacialRecognitionRequest = {
     [ModelType.RECOGNITION]: ModelOptions;
   };
 };
+
+export type ClipVisualRequest = { [ModelTask.SEARCH]: { [ModelType.VISUAL]: ModelOptions } };
+// The service serialises the embedding to a pgvector-ready string.
+export type ClipVisualResponse = { [ModelTask.SEARCH]: string };
+
+type MlRequest = FacialRecognitionRequest | ClipVisualRequest;
 
 export interface Face {
   boundingBox: BoundingBox;
@@ -110,7 +119,18 @@ export class MachineLearningRepository {
     };
   }
 
-  private async predict<T>(imagePath: string, config: FacialRecognitionRequest): Promise<T> {
+  // CLIP visual embedding for smart / similar-photo search (immich
+  // encodeImage). Returns the pgvector-ready serialised string the ML service
+  // produces, ready to store in smart_search.embedding as-is.
+  async encodeImage(imagePath: string, { modelName }: ModelOptions): Promise<string> {
+    const request: ClipVisualRequest = {
+      [ModelTask.SEARCH]: { [ModelType.VISUAL]: { modelName } },
+    };
+    const response = await this.predict<ClipVisualResponse>(imagePath, request);
+    return response[ModelTask.SEARCH];
+  }
+
+  private async predict<T>(imagePath: string, config: MlRequest): Promise<T> {
     const formData = await this.getFormData(imagePath, config);
 
     for (const url of [
@@ -140,7 +160,7 @@ export class MachineLearningRepository {
     throw new Error(`Machine learning request '${JSON.stringify(config)}' failed for all URLs`);
   }
 
-  private async getFormData(imagePath: string, config: FacialRecognitionRequest): Promise<FormData> {
+  private async getFormData(imagePath: string, config: MlRequest): Promise<FormData> {
     const formData = new FormData();
     formData.append('entries', JSON.stringify(config));
     const fileBuffer = await readFile(imagePath);

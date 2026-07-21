@@ -40,6 +40,9 @@ export class UpdateEventDto extends createZodDto(
     description: z.string().max(5000).nullish(),
     startsAt: isoDate.nullish(),
     endsAt: isoDate.nullish(),
+    // Absolute instant the participant links close. null = never expires.
+    // Media is not deleted at this point — see EventExpiryService.
+    expiresAt: isoDate.nullish(),
     status: z.enum([EventStatus.Draft, EventStatus.Active, EventStatus.Closed]).optional(),
     participantPageEnabled: z.boolean().optional(),
     // Whether participants see the whole event gallery, and separately whether
@@ -51,3 +54,18 @@ export class UpdateEventDto extends createZodDto(
   }),
 ) {}
 
+
+// Pushing the expiry out. null clears it entirely (never expires), which also
+// cancels a scheduled purge.
+export class ExtendExpiryDto extends createZodDto(
+  z.object({
+    expiresAt: isoDate.nullable(),
+  }),
+) {}
+
+// Sidebar cover. null clears it, falling back to the event's newest photo.
+export class SetCoverDto extends createZodDto(
+  z.object({
+    assetId: z.string().uuid().nullable(),
+  }),
+) {}

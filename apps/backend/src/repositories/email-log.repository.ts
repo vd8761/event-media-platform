@@ -34,4 +34,25 @@ export class EmailLogRepository {
       .where('id', '=', id)
       .execute();
   }
+
+  // Applied from the provider webhook, which knows the message by its own id.
+  // Returns false when nothing matched — an unknown id is normal (mail sent by
+  // a different environment sharing the Resend account) and must not 500.
+  async applyProviderStatus(
+    messageId: string,
+    status: EmailStatus,
+    occurredAt: Date,
+    detail?: string,
+  ): Promise<boolean> {
+    const result = await this.db
+      .updateTable('emailLog')
+      .set({ status, statusAt: occurredAt, ...(detail ? { error: detail.slice(0, 1000) } : {}) })
+      .where('messageId', '=', messageId)
+      // Late-arriving events must not overwrite a newer one: webhooks are not
+      // ordered, so a delayed `sent` can land after `delivered`.
+      .where((eb) => eb.or([eb('statusAt', 'is', null), eb('statusAt', '<', occurredAt)]))
+      .executeTakeFirst();
+
+    return (result.numUpdatedRows ?? 0n) > 0n;
+  }
 }

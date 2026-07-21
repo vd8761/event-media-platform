@@ -8,6 +8,10 @@ export interface PersonWithCount extends Person {
   faceCount: number;
 }
 
+export interface OrgPerson extends PersonWithCount {
+  eventName: string;
+}
+
 export interface PersonThumbnailData {
   personId: string;
   eventId: string;
@@ -59,6 +63,34 @@ export class PersonRepository {
       .$if(!includeHidden, (qb) => qb.where('isHidden', '=', false))
       .orderBy('faceCount', 'desc')
       .execute() as Promise<PersonWithCount[]>;
+  }
+
+  // Every named/visible person across an org's live events, each carrying its
+  // event so the org-wide People page can label and link. Only people with a
+  // portrait and at least one photo are worth showing here — the People grid is
+  // a browsing surface, not the per-event cluster-review screen.
+  getAllForOrg(orgId: string): Promise<OrgPerson[]> {
+    return this.db
+      .selectFrom('person')
+      .innerJoin('event', 'event.id', 'person.eventId')
+      .selectAll('person')
+      .select('event.name as eventName')
+      .select((eb) =>
+        eb
+          .selectFrom('assetFace')
+          .innerJoin('asset', 'asset.id', 'assetFace.assetId')
+          .select(sql<number>`count(DISTINCT asset.id)::int`.as('count'))
+          .whereRef('assetFace.personId', '=', 'person.id')
+          .where('assetFace.deletedAt', 'is', null)
+          .where('asset.deletedAt', 'is', null)
+          .as('faceCount'),
+      )
+      .where('person.orgId', '=', orgId)
+      .where('person.isHidden', '=', false)
+      .where('person.thumbnailKey', 'is not', null)
+      .where('event.deletedAt', 'is', null)
+      .orderBy('faceCount', 'desc')
+      .execute() as Promise<OrgPerson[]>;
   }
 
   update(eventId: string, personId: string, dto: Partial<{ name: string; isHidden: boolean; thumbnailKey: string; faceAssetFaceId: string | null }>): Promise<Person> {

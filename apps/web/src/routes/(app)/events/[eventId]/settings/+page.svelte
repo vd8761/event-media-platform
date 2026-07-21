@@ -1,7 +1,9 @@
 <script lang="ts">
   import { goto, invalidateAll } from '$app/navigation';
-  import { api, ApiError } from '$lib/api';
+  import { api, ApiError, type AssetItem } from '$lib/api';
+  import { shellStore } from '$lib/shell.svelte';
   import { Alert, Button, Input, Switch, Textarea } from '@immich/ui';
+  import { onMount } from 'svelte';
 
   let { data } = $props();
 
@@ -47,9 +49,83 @@
     }
   }
 
+  // --- sidebar cover ---
+
+  // A recent slice rather than the whole event: enough to recognise a good
+  // cover, without pulling thousands of thumbnails into a settings page.
+  let coverChoices = $state<AssetItem[]>([]);
+  let coverBusy = $state(false);
+
+  onMount(async () => {
+    const result = await api.assets.list(data.event.id, undefined, 24).catch(() => null);
+    coverChoices = result?.assets ?? [];
+  });
+
+  async function setCover(assetId: string | null) {
+    coverBusy = true;
+    try {
+      await api.events.setCover(data.event.id, assetId);
+      await invalidateAll();
+      // The sidebar caches its event list, so it has to be told.
+      await shellStore.refresh();
+    } finally {
+      coverBusy = false;
+    }
+  }
+
+  // --- expiration ---
+
+  // <input type="datetime-local"> speaks local wall-clock with no zone, so it
+  // is converted at both boundaries rather than stored as an ISO string.
+  const toLocalInput = (iso: string | null) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  let expiresAtLocal = $state(toLocalInput(data.event.expiresAt));
+  let expiryBusy = $state(false);
+  let expiryError = $state('');
+
+  const isExpired = $derived(!!data.event.expiresAt && new Date(data.event.expiresAt) <= new Date());
+
+  const formatDate = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' }) : '';
+
+  async function runExpiry(action: () => Promise<unknown>, confirmText?: string) {
+    if (confirmText && !confirm(confirmText)) return;
+    expiryError = '';
+    expiryBusy = true;
+    try {
+      await action();
+      await invalidateAll();
+    } catch (e) {
+      expiryError = e instanceof ApiError ? e.message : String(e);
+    } finally {
+      expiryBusy = false;
+    }
+  }
+
+  // `extend` rather than a plain update: it also clears the notified mark and
+  // cancels a scheduled purge, so guest links come back immediately.
+  const saveExpiry = () =>
+    runExpiry(() =>
+      api.events.extendExpiry(data.event.id, expiresAtLocal ? new Date(expiresAtLocal).toISOString() : null),
+    );
+
+  const acknowledgeExpiry = () => runExpiry(() => api.events.acknowledgeExpiry(data.event.id));
+
+  const purgeNow = () =>
+    runExpiry(
+      () => api.events.purgeExpired(data.event.id),
+      'Permanently delete every photo in this event? This cannot be undone.',
+    );
+
   async function removeEvent() {
     if (!confirm(`Delete "${data.event.name}"? All photos, people and participants will be removed.`)) return;
     await api.events.remove(data.event.id);
+    await shellStore.refresh();
     await goto('/events');
   }
 </script>
@@ -130,6 +206,100 @@
 
     <div class="flex gap-3">
       <Button size="large" onclick={save} loading={saving} disabled={saving}>Save changes</Button>
+    </div>
+
+    <!-- Sidebar cover. Picked from the event's own photos rather than an
+         upload, so there is nothing extra to store or clean up. -->
+    <div class="mt-6 rounded-3xl border border-gray-200 p-5">
+      <p class="md-title-small mb-1">Sidebar cover</p>
+      <p class="md-label-medium mb-4 text-gray-500">
+        The thumbnail shown beside this event in the sidebar. Defaults to the most recent photo.
+      </p>
+
+      {#if coverChoices.length === 0}
+        <p class="md-body-medium text-gray-500">Upload some photos first.</p>
+      {:else}
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onclick={() => setCover(null)}
+            disabled={coverBusy}
+            class="flex h-16 w-16 items-center justify-center rounded-xl border-2 text-xs transition
+              {data.event.coverAssetId === null
+              ? 'border-immich-primary text-immich-primary'
+              : 'border-gray-200 text-gray-500 hover:border-gray-300'}"
+          >
+            Auto
+          </button>
+          {#each coverChoices as asset (asset.id)}
+            <button
+              type="button"
+              onclick={() => setCover(asset.id)}
+              disabled={coverBusy}
+              title={asset.originalFilename}
+              class="size-16 overflow-hidden rounded-xl border-2 transition
+                {data.event.coverAssetId === asset.id ? 'border-immich-primary' : 'border-transparent hover:border-gray-300'}"
+            >
+              {#if asset.thumbUrl}
+                <img src={asset.thumbUrl} alt="" class="size-full object-cover" loading="lazy" />
+              {/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
+    <!-- Expiration. Two separate moments: the guest links close at expiresAt,
+         and the photos are deleted after purgeAfter. -->
+    <div class="mt-6 rounded-3xl border border-gray-200 p-5">
+      <p class="md-title-small mb-1">Expiration</p>
+      <p class="md-label-medium mb-4 text-gray-500">
+        When guest gallery links stop working. Photos are not deleted straight away — you get a warning email first, and
+        can extend or delete early. Leave blank for no expiry.
+      </p>
+
+      {#if data.event.purgedAt}
+        <Alert color="danger" class="mb-4">
+          The photos for this event were deleted on {formatDate(data.event.purgedAt)}. This cannot be undone.
+        </Alert>
+      {:else if isExpired}
+        <Alert color="warning" class="mb-4">
+          This event closed on {formatDate(data.event.expiresAt)}. Guest links are shut.
+          {#if data.event.purgeAfter}
+            Photos will be permanently deleted after <strong>{formatDate(data.event.purgeAfter)}</strong>.
+          {/if}
+        </Alert>
+      {/if}
+
+      <label class="block">
+        <span class="md-label-large">Expires at</span>
+        <input
+          type="datetime-local"
+          bind:value={expiresAtLocal}
+          disabled={!!data.event.purgedAt}
+          class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 disabled:bg-gray-100"
+        />
+      </label>
+
+      {#if expiryError}
+        <p class="md-label-medium mt-2 text-red-600">{expiryError}</p>
+      {/if}
+
+      <div class="mt-4 flex flex-wrap gap-3">
+        <Button size="small" loading={expiryBusy} disabled={expiryBusy || !!data.event.purgedAt} onclick={saveExpiry}>
+          {isExpired ? 'Extend' : 'Save expiry'}
+        </Button>
+        {#if isExpired && !data.event.purgedAt}
+          {#if !data.event.expiryAcknowledgedAt}
+            <Button size="small" variant="outline" disabled={expiryBusy} onclick={acknowledgeExpiry}>
+              Acknowledge
+            </Button>
+          {/if}
+          <Button size="small" variant="outline" color="danger" disabled={expiryBusy} onclick={purgeNow}>
+            Delete photos now
+          </Button>
+        {/if}
+      </div>
     </div>
 
     <div class="mt-6 rounded-3xl border border-red-200 p-5">

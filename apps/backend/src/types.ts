@@ -9,6 +9,8 @@ export interface JobPayloads {
   [JobName.FaceDetect]: { assetId: string };
   [JobName.FaceRecognize]: { faceId: string; deferred?: boolean };
   [JobName.FaceRecognizeQueueAll]: { eventId: string; force?: boolean };
+  [JobName.SmartSearch]: { assetId: string };
+  [JobName.SmartSearchQueueAll]: { eventId: string; force?: boolean };
   [JobName.PersonThumbnail]: { personId: string };
   [JobName.SelfieProcess]: { participantId: string };
   [JobName.ImportFolder]: { importJobId: string };
@@ -26,6 +28,10 @@ export interface JobPayloads {
   [JobName.SessionCleanup]: Record<string, never>;
   [JobName.StorageReconcile]: Record<string, never>;
   [JobName.PersonCleanup]: Record<string, never>;
+  [JobName.SendEventExpiry]: { eventId: string };
+  [JobName.EventExpirySweep]: Record<string, never>;
+  [JobName.EventPurgeSweep]: Record<string, never>;
+  [JobName.GpuLifecycleSweep]: Record<string, never>;
 }
 
 export type JobItem = {
@@ -53,6 +59,7 @@ export const QUEUE_ROLES: Record<QueueName, WorkerRole.Ingest | WorkerRole.Media
   [QueueName.VideoTranscode]: WorkerRole.Media,
   [QueueName.FaceDetection]: WorkerRole.Media,
   [QueueName.FacialRecognition]: WorkerRole.Media,
+  [QueueName.SmartSearch]: WorkerRole.Media,
   [QueueName.PersonThumbnail]: WorkerRole.Media,
   [QueueName.Selfie]: WorkerRole.Media,
   [QueueName.Import]: WorkerRole.Ingest,
@@ -70,6 +77,7 @@ export const QUEUE_CONCURRENCY: Record<QueueName, number> = {
   [QueueName.VideoTranscode]: 1,
   [QueueName.FaceDetection]: 2,
   [QueueName.FacialRecognition]: 1,
+  [QueueName.SmartSearch]: 2,
   [QueueName.PersonThumbnail]: 2,
   [QueueName.Selfie]: 2,
   [QueueName.Import]: 4,
@@ -85,6 +93,7 @@ export const QUEUE_RETRY: Record<QueueName, { attempts: number; backoffMs: numbe
   [QueueName.VideoTranscode]: { attempts: 3, backoffMs: 30_000 },
   [QueueName.FaceDetection]: { attempts: 3, backoffMs: 30_000 },
   [QueueName.FacialRecognition]: { attempts: 3, backoffMs: 10_000 },
+  [QueueName.SmartSearch]: { attempts: 3, backoffMs: 30_000 },
   [QueueName.PersonThumbnail]: { attempts: 3, backoffMs: 30_000 },
   [QueueName.Selfie]: { attempts: 3, backoffMs: 30_000 },
   [QueueName.Import]: { attempts: 5, backoffMs: 30_000 },

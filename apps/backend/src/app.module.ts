@@ -18,6 +18,7 @@ import { OrganizationController } from 'src/controllers/organization.controller'
 import { ParticipantAdminController } from 'src/controllers/participant-admin.controller';
 import { PersonController } from 'src/controllers/person.controller';
 import { PublicController } from 'src/controllers/public.controller';
+import { WebhookController } from 'src/controllers/webhook.controller';
 import { AuthGuard } from 'src/middleware/auth.guard';
 import { FileUploadInterceptor } from 'src/middleware/file-upload.interceptor';
 import { repositories } from 'src/repositories';
@@ -53,6 +54,7 @@ const throttler = ThrottlerModule.forRoot([{ ttl: 60_000, limit: 300 }]);
     PublicController,
     CloudController,
     ImportController,
+    WebhookController,
   ],
   providers: [
     ...common,

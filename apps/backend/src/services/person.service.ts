@@ -60,6 +60,25 @@ export class PersonService {
     );
   }
 
+  // Org-wide People grid (the app-shell "People" tab): every named/visible
+  // person across the org's live events. Filenames aside, the shape mirrors the
+  // per-event list so the frontend renders both with one card.
+  async listForOrg(orgId: string) {
+    const people = await this.personRepository.getAllForOrg(orgId);
+    return Promise.all(
+      people.map(async (person) => ({
+        id: person.id,
+        eventId: person.eventId,
+        eventName: person.eventName,
+        name: person.name,
+        faceCount: person.faceCount,
+        thumbnailUrl: person.thumbnailKey
+          ? await this.storageRepository.presignGet(person.thumbnailKey, { expiresIn: URL_TTL })
+          : null,
+      })),
+    );
+  }
+
   async get(eventId: string, personId: string) {
     const person = await this.personRepository.getById(eventId, personId);
     if (!person) {

@@ -24,6 +24,77 @@ export const FACIAL_RECOGNITION_DEFAULTS: FacialRecognitionConfig = {
   minFaces: 1,
 };
 
+// How long an expired event keeps its media before the purge sweep deletes it
+// from R2. This is the organizer's window to extend or bail out, so it is
+// deliberately generous by default — deleting event media cannot be undone.
+export interface EventRetentionConfig {
+  purgeGraceHours: number;
+}
+
+export const EVENT_RETENTION_DEFAULTS: EventRetentionConfig = {
+  purgeGraceHours: 24,
+};
+
+// When the GPU box should be woken, and how it is started and stopped.
+//
+// Provider-agnostic on purpose: start/stop are outbound webhooks, so this
+// works against JarvisLabs, Coolify, a cloud API or a home-grown script
+// without a code change.
+export interface GpuAutostartConfig {
+  enabled: boolean;
+  // Wake once this many jobs are waiting across the GPU queues.
+  pendingThreshold: number;
+  // …or once the oldest waiting job has been sitting this long, so a single
+  // straggler is never stranded below the threshold.
+  maxPendingAgeMinutes: number;
+  // Stop this long after the queues go quiet. Billing is per-second, so this
+  // is a small hedge against the next batch arriving, not an hour-boundary
+  // game.
+  idleShutdownMinutes: number;
+  // Give up (and stop) if the box never reports in after a start.
+  startTimeoutMinutes: number;
+  startWebhookUrl: string;
+  stopWebhookUrl: string;
+  // Sent as `Authorization` on both calls. Stored in system_config, so treat
+  // the config table as secret-bearing.
+  webhookAuthHeader: string;
+}
+
+export const GPU_AUTOSTART_DEFAULTS: GpuAutostartConfig = {
+  enabled: false,
+  pendingThreshold: 25,
+  maxPendingAgeMinutes: 120,
+  idleShutdownMinutes: 10,
+  startTimeoutMinutes: 20,
+  startWebhookUrl: '',
+  stopWebhookUrl: '',
+  webhookAuthHeader: '',
+};
+
+export type GpuState = 'off' | 'starting' | 'running' | 'stopping';
+
+// Mutable counterpart to the config above — written by the sweep.
+export interface GpuLifecycleState {
+  state: GpuState;
+  since: string;
+  // Set by a "Process all" click: hold the box up until this instant even if
+  // the queues look briefly empty, so a manual run is never cut short by a lull
+  // between jobs.
+  holdUntil: string | null;
+  lastStartedAt: string | null;
+  lastStoppedAt: string | null;
+  lastError: string | null;
+}
+
+export const GPU_LIFECYCLE_INITIAL: GpuLifecycleState = {
+  state: 'off',
+  since: new Date(0).toISOString(),
+  holdUntil: null,
+  lastStartedAt: null,
+  lastStoppedAt: null,
+  lastError: null,
+};
+
 @Injectable()
 export class SystemConfigRepository {
   constructor(@InjectKysely() private db: Kysely<DB>) {}
@@ -44,5 +115,24 @@ export class SystemConfigRepository {
   async getFacialRecognitionConfig(): Promise<FacialRecognitionConfig> {
     const stored = await this.get<Partial<FacialRecognitionConfig>>(SystemConfigKey.FacialRecognition);
     return { ...FACIAL_RECOGNITION_DEFAULTS, ...stored };
+  }
+
+  async getEventRetentionConfig(): Promise<EventRetentionConfig> {
+    const stored = await this.get<Partial<EventRetentionConfig>>(SystemConfigKey.EventRetention);
+    return { ...EVENT_RETENTION_DEFAULTS, ...stored };
+  }
+
+  async getGpuAutostartConfig(): Promise<GpuAutostartConfig> {
+    const stored = await this.get<Partial<GpuAutostartConfig>>(SystemConfigKey.GpuAutostart);
+    return { ...GPU_AUTOSTART_DEFAULTS, ...stored };
+  }
+
+  async getGpuLifecycleState(): Promise<GpuLifecycleState> {
+    const stored = await this.get<Partial<GpuLifecycleState>>(SystemConfigKey.GpuLifecycle);
+    return { ...GPU_LIFECYCLE_INITIAL, ...stored };
+  }
+
+  async setGpuLifecycleState(state: GpuLifecycleState): Promise<void> {
+    await this.set(SystemConfigKey.GpuLifecycle, state);
   }
 }

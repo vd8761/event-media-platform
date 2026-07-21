@@ -241,12 +241,88 @@ a.h-10.w-10:not([data-md-raw]) {
     --navbar-height-md: calc(4.5rem + 4px - 14px);
   }
 
+  /* --- making dark mode actually work ------------------------------------
+     The app was written light-only: ~185 uses of `text-gray-500`,
+     `border-gray-200`, `bg-immich-gray` and friends, across 22 of 24
+     components, none with a `dark:` variant. Hand-editing every call site
+     would be a large, error-prone diff that future components would keep
+     re-introducing.
+
+     Instead the ramps themselves are redefined under `.dark`, so a utility
+     like `text-gray-500` resolves to a light grey on dark and a dark grey on
+     light, with no `dark:` variant needed anywhere. This is the same
+     inversion @immich/ui applies to its own `light-*` ramp.
+
+     Consequence worth knowing: inside `.dark`, `bg-gray-100` is a *dark*
+     surface. Do not add `dark:bg-gray-800`-style overrides to new components
+     — that double-inverts and lands back in light. Use the plain utility. */
   :root.dark {
     color-scheme: dark;
+
+    /* EventLens palette: point the light tokens at their dark counterparts so
+       `bg-immich-bg` / `bg-immich-gray` need no variant. */
+    --immich-primary: var(--immich-dark-primary);
+    --immich-bg: var(--immich-dark-bg);
+    --immich-fg: var(--immich-dark-fg);
+    --immich-gray: var(--immich-dark-gray);
+
+    /* Tailwind neutral ramp, inverted. */
+    --color-gray-50: var(--color-neutral-950);
+    --color-gray-100: var(--color-neutral-900);
+    --color-gray-200: var(--color-neutral-800);
+    --color-gray-300: var(--color-neutral-700);
+    --color-gray-400: var(--color-neutral-600);
+    --color-gray-500: var(--color-neutral-400);
+    --color-gray-600: var(--color-neutral-300);
+    --color-gray-700: var(--color-neutral-200);
+    --color-gray-800: var(--color-neutral-100);
+    --color-gray-900: var(--color-neutral-50);
+    --color-gray-950: oklch(100% 0 0);
+  }
+
+  /* Muted text sits at gray-500/600 all over the app. On true black the
+     inverted neutral-400 is thin, so OLED nudges those two steps brighter —
+     this is the difference between "subtle" and "unreadable". */
+  :root.dark.oled {
+    --color-gray-500: var(--color-neutral-400);
+    --color-gray-600: var(--color-neutral-300);
+    --color-gray-200: oklch(26% 0 0);
+    --color-gray-100: oklch(18% 0 0);
   }
 
   :root:not(.dark) {
     color-scheme: light;
+  }
+
+  /* --- OLED ---------------------------------------------------------------
+     Layered on top of `.dark` rather than replacing it: every `dark:` variant
+     and every @immich/ui component keeps working, and this only redefines
+     which colours "dark" resolves to.
+
+     True black (0 0 0) is the point — on an OLED panel those pixels are off,
+     which is both the power saving and the contrast. Surfaces above the
+     background stay *slightly* lifted so cards, menus and the sidebar remain
+     distinguishable; a single flat black would erase every boundary in the
+     layout. */
+  :root.dark.oled {
+    --immich-dark-bg: 0 0 0;
+    --immich-dark-gray: 18 18 18;
+
+    /* @immich/ui resolves its dark surfaces through the light-* ramp, so the
+       low end of that ramp is what actually paints component backgrounds. */
+    --immich-ui-light-50: oklch(0% 0 0);
+    --immich-ui-light-100: oklch(14% 0 0);
+    --immich-ui-light-200: oklch(19% 0 0);
+    --immich-ui-light-300: oklch(24% 0 0);
+
+    /* Borders need more contrast than on grey, or they vanish into the black. */
+    --immich-ui-default-border: oklch(28% 0 0);
+  }
+
+  /* The photo viewer and other full-bleed surfaces sit directly on the page
+     background, so they inherit true black for free. */
+  :root.dark.oled body {
+    background-color: rgb(var(--immich-dark-bg));
   }
 
   html {
