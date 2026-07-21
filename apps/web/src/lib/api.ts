@@ -499,6 +499,16 @@ export interface GalleryResponse {
 
 // --- auth ---
 
+export type SelfieProgress =
+  | { mode: 'email' }
+  | {
+      mode: 'live';
+      status: 'processing' | 'no_face' | 'pending_match' | 'matched';
+      position: number | null;
+      etaSeconds: number | null;
+      matchedCount: number;
+    };
+
 export const api = {
   login: (email: string, password: string) =>
     post<{ accessToken: string; userId: string }>('/auth/login', { email, password }),
@@ -682,8 +692,15 @@ export const api = {
       for (const selfie of body.selfies) {
         form.append('selfie', selfie);
       }
-      return request<{ message: string }>(`/public/events/${slug}/participants`, { method: 'POST', body: form });
+      return request<{ message: string; progressTicket: string }>(`/public/events/${slug}/participants`, {
+        method: 'POST',
+        body: form,
+      });
     },
+    // Queue position while the guest waits on the page. `mode: 'email'` means
+    // the GPU box is off, starting, or too loaded for an estimate to be honest
+    // — fall back to telling them to watch their inbox.
+    selfieProgress: (ticket: string) => get<SelfieProgress>(`/public/selfie-progress/${ticket}`),
     // Public help form. Name and email are optional — a guest who cannot get
     // into their gallery should not have to identify themselves to say so.
     submitSupport: (body: { message: string; name?: string; email?: string; eventId?: string }) =>

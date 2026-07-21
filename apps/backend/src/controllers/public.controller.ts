@@ -18,6 +18,7 @@ import { Request, Response } from 'express';
 import { createZodDto } from 'nestjs-zod';
 import { FileUploadInterceptor, SELFIE_UPLOAD_FIELD, getStagedUploads } from 'src/middleware/file-upload.interceptor';
 import { PublicService } from 'src/services/public.service';
+import { SelfieProgressService } from 'src/services/selfie-progress.service';
 import { z } from 'zod';
 
 export class SubmitSelfieDto extends createZodDto(
@@ -49,7 +50,10 @@ export class GalleryAssetsQueryDto extends createZodDto(
 @ApiTags('Public')
 @Controller('public')
 export class PublicController {
-  constructor(private publicService: PublicService) {}
+  constructor(
+    private publicService: PublicService,
+    private selfieProgressService: SelfieProgressService,
+  ) {}
 
   @Get('events/:slug')
   getEvent(@Param('slug') slug: string) {
@@ -69,6 +73,14 @@ export class PublicController {
       getStagedUploads(request, SELFIE_UPLOAD_FIELD),
       request.ip ?? '',
     );
+  }
+
+  // Polled by a guest still sitting on the submission page. Returns queue
+  // position and an estimate, or `{ mode: 'email' }` when the GPU box is not in
+  // a state where either number would mean anything.
+  @Get('selfie-progress/:ticket')
+  getSelfieProgress(@Param('ticket') ticket: string) {
+    return this.selfieProgressService.getProgress(ticket);
   }
 
   @Get('gallery/:token')

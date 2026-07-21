@@ -25,6 +25,7 @@ import { EventRow } from 'src/schema';
 import { AssetService } from 'src/services/asset.service';
 import { GalleryTokenService } from 'src/services/gallery-token.service';
 import { PersonService } from 'src/services/person.service';
+import { SelfieProgressService } from 'src/services/selfie-progress.service';
 import { isEventExpired, isEventPurged } from 'src/utils/event-expiry';
 import { toFaceBoxes } from 'src/utils/face-box';
 import { RateLimiter } from 'src/utils/rate-limiter';
@@ -48,6 +49,7 @@ export class PublicService {
     private galleryTokenService: GalleryTokenService,
     private jobRepository: JobRepository,
     private logger: LoggingRepository,
+    private selfieProgressService: SelfieProgressService,
     private organizationRepository: OrganizationRepository,
     private participantRepository: ParticipantRepository,
     private personRepository: PersonRepository,
@@ -140,8 +142,14 @@ export class PublicService {
         { name: JobName.SelfieProcess, data: { participantId: participant.id } },
       ]);
 
-      // response is always the same generic 202 — no email enumeration
-      return { message: "Check your email — we've sent you a link to your photos." };
+      // Response stays generic — no email enumeration. The progress ticket is
+      // safe to include because it unlocks only counts and a status, never
+      // photos and never the gallery link; whoever submitted this selfie
+      // already knows everything it can tell them.
+      return {
+        message: "Check your email — we've sent you a link to your photos.",
+        progressTicket: this.selfieProgressService.issueTicket(participant.id),
+      };
     } finally {
       await Promise.all(staged.map((file) => unlink(file.stagingPath).catch(() => undefined)));
     }

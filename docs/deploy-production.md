@@ -329,6 +329,8 @@ Setup:
 3. In **Admin → GPU worker → Autostart**, set **Control method** to **JarvisLabs CLI**, paste the **Instance ID**, and optionally a GPU type to resume with (blank keeps the original).
 4. Press **Test connection**. This runs `jl get` read-only and proves the binary, the token and the id all work before autostart depends on them.
 
+**This works on Render's Docker runtime — verified, not assumed.** Building the image's `jl` layer and running it with the rootfs mounted read-only, as a non-root user, with `HOME` pointing at a path that does not exist, still returns a correct `jl list` / `jl get`. Nothing is written to disk at any point, because `JL_API_KEY` is read from the environment and there is no `jl setup` step and no config file. That is the property the whole approach depends on, so re-run that check if you ever bump the base image or the `jarvislabs` package.
+
 Two behaviours worth knowing:
 
 - **Resume can reassign the instance id.** The CLI documents this, so the id returned by `jl resume` is persisted into the lifecycle state and used for the subsequent pause. Pausing the stale id would leave the real machine running and billing — which is exactly the failure this avoids.
@@ -469,6 +471,37 @@ The polling direction is deliberate. The VM needs no inbound access, and **if th
 
 ---
 
+## 9c. Live selfie progress on the public page
+
+By default a guest submits a selfie, gets a "check your email" acknowledgement, and leaves. When the GPU box happens to be **awake and keeping up**, they instead stay on the page and watch their place in the queue, refreshed every 10 seconds, with an estimate.
+
+The server decides which of the two they see — the page only renders `mode`:
+
+| `mode` | When | What the guest sees |
+|---|---|---|
+| `live` | GPU worker online **and** total GPU pending ≤ 100 | Spinner, "You're number 4 in the queue", "Roughly about 2 minutes to go". Flips to a result if it finishes while they watch. |
+| `email` | Box off, starting, or busier than that | The existing "we've emailed you a private link" alert. |
+
+**The email is sent either way.** The live view is a convenience and never the only route to the photos — a guest who closes the tab loses nothing.
+
+Why the cutoff is *total* GPU pending rather than the selfie queue's own depth: the selfie queue can be nearly empty while an import has thousands of faces queued ahead of it on the same GPU. Total depth is the honest signal for whether an estimate means anything. The threshold is `LIVE_MODE_MAX_PENDING` in [selfie-progress.service.ts](../apps/backend/src/services/selfie-progress.service.ts).
+
+**This interacts with `pendingThreshold` in [§9a](#9a-gpu-box--on-demand-lifecycle).** That setting decides when the box *wakes*; this one decides when guests are *shown* a countdown. If you raise `pendingThreshold` above 100, the box will routinely be asleep with work queued below the live cutoff, and guests will always get the email path — which is correct, just worth knowing you chose it.
+
+Estimates come from BullMQ's own completed-per-minute metrics over the last 15 minutes, so they already reflect whatever else the GPU is doing. With no throughput history yet — the first submission after a wake — it falls back to a fixed per-selfie cost.
+
+### The progress ticket
+
+The submit response carries an opaque, AES-GCM ticket (same key as everything else, [§0.2](#02-generate-the-encryption-key)) that is valid for 30 minutes.
+
+It is **not** a gallery token and deliberately unlocks nothing: every endpoint reading it returns a status and counts, never photos and never the gallery link. That is what makes it safe to hand straight back over HTTP. Gallery tokens still only ever reach the mailbox owner, so submitting someone else's address gains an attacker nothing. A forged or expired ticket returns `{ "mode": "email" }` rather than an error, so it cannot be used to probe for valid participants either.
+
+### If you moved selfie intake to Render ([§10](#10-optional--run-selfie-intake-on-render))
+
+Handled automatically. When the API process runs the `selfie` queue itself (`EL_QUEUES_INCLUDE=selfie`), the GPU box's state is irrelevant to how fast that guest is served, so the live view is offered regardless of whether the box is awake. No extra configuration.
+
+---
+
 ## 9b. Event expiration and media retention
 
 Two separate moments:
@@ -543,6 +576,8 @@ Worth knowing either way: matching a selfie is embedding **plus** a KNN query ag
 | `MACHINE_LEARNING_URL` | — | `http://ml:3003` | — |
 | `EL_ML_DEVICE` | — | `cuda` | — |
 | `EL_TOKEN_ENCRYPTION_KEY` | ✅ | ✅ (identical) | — |
+| `JL_API_KEY` | ✅ (GPU pause/resume, §6.5) | — | — |
+| `EL_SESSION_TTL_DAYS` | optional | — | — |
 | `RESEND_WEBHOOK_SECRET` | ✅ | — | — |
 | `EL_GPU_HEARTBEAT_TOKEN` | ✅ | ✅ (same value, used by the shutdown script) | — |
 | `EL_PUBLIC_BASE_URL` | ✅ | ✅ | — |

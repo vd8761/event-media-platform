@@ -1,12 +1,12 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { api, ApiError, asExpiredEvent, type ExpiredEventInfo } from '$lib/api';
+  import { api, ApiError, asExpiredEvent, type ExpiredEventInfo, type SelfieProgress } from '$lib/api';
   import PublicTopBar from '$lib/components/PublicTopBar.svelte';
   import { Alert, Button, Input, LoadingSpinner } from '@immich/ui';
   import { mdiCameraOutline, mdiClose } from '@mdi/js';
   import { Icon } from '@immich/ui';
   import { DateTime } from 'luxon';
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
 
   const slug = page.params.slug!;
 
@@ -34,6 +34,60 @@
   let error = $state('');
   let fileInput = $state<HTMLInputElement | null>(null);
 
+  // --- live progress ---
+  // When the GPU box is already awake and not backed up, we keep the guest here
+  // and show them the queue instead of sending them to their inbox. The server
+  // decides which of those two it is; `progress.mode` is the whole contract.
+  const POLL_MS = 10_000;
+
+  let ticket = $state('');
+  let progress = $state<SelfieProgress | null>(null);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  async function pollProgress() {
+    if (!ticket) return;
+    try {
+      progress = await api.public.selfieProgress(ticket);
+    } catch {
+      // A failed poll is not worth showing: the email is already sent, so the
+      // guest has a working path either way. Fall back to that quietly.
+      progress = { mode: 'email' };
+    }
+    schedulePoll();
+  }
+
+  function schedulePoll() {
+    stopPolling();
+    // Stop once there is nothing left to watch — a finished participant, or a
+    // box that put them on the email path.
+    if (progress?.mode !== 'live' || progress.status !== 'processing') return;
+    if (document.visibilityState !== 'visible') return;
+    timer = setTimeout(() => void pollProgress(), POLL_MS);
+  }
+
+  function stopPolling() {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  }
+
+  // A backgrounded tab must not keep polling for the half hour the ticket
+  // lives — that is a request every 10s per idle phone. Resume with an
+  // immediate read so returning to the tab shows current numbers, not a
+  // ten-second-old count.
+  function onVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+      void pollProgress();
+    } else {
+      stopPolling();
+    }
+  }
+
+  function formatEta(seconds: number): string {
+    if (seconds < 60) return `about ${Math.max(5, Math.round(seconds / 5) * 5)} seconds`;
+    const minutes = Math.round(seconds / 60);
+    return `about ${minutes} minute${minutes === 1 ? '' : 's'}`;
+  }
+
   function onFilesPicked(list: FileList | null) {
     if (!list) return;
     // Silently cap rather than erroring: the picker allows multi-select, and
@@ -58,13 +112,17 @@
     error = '';
     submitting = true;
     try {
-      await api.public.submitSelfie(slug, {
+      const result = await api.public.submitSelfie(slug, {
         email,
         name: name.trim(),
         phone: phone.trim() || undefined,
         selfies: selfies.map((entry) => entry.file),
       });
       submitted = true;
+      ticket = result.progressTicket;
+      // One immediate read decides which of the two confirmations they see, so
+      // the live view never appears and then vanishes a beat later.
+      await pollProgress();
     } catch (err) {
       error =
         err instanceof ApiError && err.status === 429
@@ -77,7 +135,15 @@
     }
   }
 
+  onDestroy(() => {
+    stopPolling();
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    }
+  });
+
   onMount(async () => {
+    document.addEventListener('visibilitychange', onVisibilityChange);
     try {
       event = await api.public.event(slug);
     } catch (error) {
@@ -119,9 +185,48 @@
       </div>
 
       {#if submitted}
-        <Alert color="success" title="You're all set!">
-          We've emailed you a private link to your photos — open it any time to see how we're getting on.
-        </Alert>
+        {#if progress?.mode === 'live' && progress.status === 'processing'}
+          <!-- The GPU box is awake and keeping up, so the wait is short enough
+               to be worth watching. The email has gone out regardless — this
+               view is a convenience, never the only way to get the photos. -->
+          <div class="text-center">
+            <div class="mb-4 flex justify-center"><LoadingSpinner size="giant" /></div>
+            <p class="md-title-medium mb-1">Finding your photos…</p>
+            <p class="md-body-medium text-gray-600">
+              {#if progress.position && progress.position > 1}
+                You're number {progress.position} in the queue.
+              {:else}
+                You're up next.
+              {/if}
+              {#if progress.etaSeconds}
+                <br />Roughly {formatEta(progress.etaSeconds)} to go.
+              {/if}
+            </p>
+            <p class="md-label-medium mt-4 leading-relaxed text-gray-400">
+              You can close this page — we've also emailed you a private link to your photos.
+            </p>
+          </div>
+        {:else if progress?.mode === 'live' && progress.status === 'no_face'}
+          <Alert color="warning" title="We couldn't find a face">
+            Your photos didn't have a face we could read. We've emailed you — reply to that message or submit again
+            with a clearer, well-lit photo of just you.
+          </Alert>
+        {:else if progress?.mode === 'live'}
+          <!-- matched / pending_match: the work finished while they watched. -->
+          <Alert color="success" title="Done — we found you!">
+            {#if progress.matchedCount > 0}
+              You're in {progress.matchedCount} photo{progress.matchedCount === 1 ? '' : 's'} so far. We've emailed you
+              a private link — more will appear there as the organiser adds photos.
+            {:else}
+              We've matched your face and emailed you a private link. No photos of you have been uploaded yet, so
+              check back through that link.
+            {/if}
+          </Alert>
+        {:else}
+          <Alert color="success" title="You're all set!">
+            We've emailed you a private link to your photos — open it any time to see how we're getting on.
+          </Alert>
+        {/if}
       {:else}
         <p class="md-body-medium mb-5 text-center text-gray-600">
           Get every photo you appear in — submit a selfie and we'll find you.

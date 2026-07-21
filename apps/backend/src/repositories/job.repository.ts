@@ -215,6 +215,23 @@ export class JobRepository {
     return job?.timestamp;
   }
 
+  // Where a specific job sits in the waiting list, 1-based, or null when it is
+  // not waiting — which means it is already running, finished, or failed. Used
+  // to tell a guest "you're 4th in line" while they watch the page.
+  //
+  // Scans oldest-first and stops at `limit`: past that depth we do not offer a
+  // live position anyway, so reading the whole list would be wasted work on a
+  // queue that can hold thousands during an import.
+  async getWaitingPosition(
+    name: QueueName,
+    match: (data: any) => boolean,
+    limit = 100,
+  ): Promise<number | null> {
+    const jobs = await this.getQueue(name).getJobs(['waiting'], 0, limit - 1, true);
+    const index = jobs.findIndex((job) => match(job.data));
+    return index === -1 ? null : index + 1;
+  }
+
   getJobCounts(name: QueueName): Promise<JobCounts> {
     return this.getQueue(name).getJobCounts(
       'active',
