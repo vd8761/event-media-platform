@@ -274,7 +274,7 @@ export class JobRepository {
     limit = 100,
   ): Promise<number | null> {
     const jobs = await this.getQueue(name).getJobs(['waiting'], 0, limit - 1, true);
-    const index = jobs.findIndex((job) => match(job.data));
+    const index = jobs.findIndex((job) => job && match(job.data));
     return index === -1 ? null : index + 1;
   }
 
@@ -284,7 +284,14 @@ export class JobRepository {
   // box is kept alive by `active > 0`.
   async getOldestActiveTimestamp(name: QueueName): Promise<number | undefined> {
     const jobs = await this.getQueue(name).getJobs(['active'], 0, 50, true);
-    const started = jobs.map((job) => job.processedOn).filter((at): at is number => typeof at === 'number');
+    // `getJobs` can return holes: it reads the id list, then fetches each hash,
+    // and a job that finishes in between comes back undefined. Active jobs are
+    // exactly the ones completing, so this is where it bites — and an
+    // unguarded `.processedOn` here 500s the whole GPU status endpoint.
+    const started = jobs
+      .filter((job) => !!job)
+      .map((job) => job.processedOn)
+      .filter((at): at is number => typeof at === 'number');
     return started.length > 0 ? Math.min(...started) : undefined;
   }
 
@@ -314,7 +321,11 @@ export class JobRepository {
   // Currently-running jobs, for the "what is it working on right now" panel.
   async getActiveJobs(name: QueueName, limit = 5): Promise<{ name: string; data: any; startedAt: number | null }[]> {
     const jobs = await this.getQueue(name).getActive(0, limit - 1);
-    return jobs.map((job) => ({ name: job.name, data: job.data, startedAt: job.processedOn ?? null }));
+    // Same hole as getOldestActiveTimestamp. This feeds the admin jobs page,
+    // which polls every 5s while jobs are completing underneath it.
+    return jobs
+      .filter((job) => !!job)
+      .map((job) => ({ name: job.name, data: job.data, startedAt: job.processedOn ?? null }));
   }
 
   async getFailedJobs(
@@ -322,13 +333,15 @@ export class JobRepository {
     limit = 20,
   ): Promise<{ id: string; name: string; data: any; reason: string; failedAt: number | null }[]> {
     const jobs = await this.getQueue(name).getFailed(0, limit - 1);
-    return jobs.map((job) => ({
-      id: String(job.id),
-      name: job.name,
-      data: job.data,
-      reason: job.failedReason ?? '',
-      failedAt: job.finishedOn ?? null,
-    }));
+    return jobs
+      .filter((job) => !!job)
+      .map((job) => ({
+        id: String(job.id),
+        name: job.name,
+        data: job.data,
+        reason: job.failedReason ?? '',
+        failedAt: job.finishedOn ?? null,
+      }));
   }
 
   async queueAll(items: JobItem[]): Promise<void> {
