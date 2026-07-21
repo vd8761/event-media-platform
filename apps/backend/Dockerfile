@@ -20,6 +20,29 @@ RUN pnpm --filter backend build && \
 
 FROM ghcr.io/immich-app/base-server-prod:202607132058
 
+# JarvisLabs instance control. JarvisLabs has no REST API — only the `jl` CLI —
+# so GpuLifecycleService pauses/resumes the GPU box by running this binary as a
+# child process (src/repositories/jarvislabs.repository.ts).
+#
+# Installed into its own virtualenv rather than the system Python: Debian marks
+# the system interpreter externally-managed (PEP 668), so a plain `pip install`
+# is refused. The venv sidesteps that without `--break-system-packages` and
+# keeps the CLI's dependency tree away from anything else on the image. Only
+# `jl` is symlinked onto PATH.
+#
+# Auth is the JL_API_KEY env var — the CLI reads it directly, so no `jl setup`
+# and no writable config file are needed, which is what makes this work on
+# Render's read-only container filesystem.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 python3-venv && \
+    python3 -m venv /opt/jarvislabs && \
+    /opt/jarvislabs/bin/pip install --no-cache-dir --upgrade pip && \
+    /opt/jarvislabs/bin/pip install --no-cache-dir jarvislabs && \
+    ln -sf /opt/jarvislabs/bin/jl /usr/local/bin/jl && \
+    rm -rf /var/lib/apt/lists/*
+# NB: python3 is deliberately kept — the venv's interpreter symlinks to it, so
+# purging it would break `jl` at runtime.
+
 WORKDIR /usr/src/app
 ENV NODE_ENV=production
 COPY --from=builder /output/backend ./

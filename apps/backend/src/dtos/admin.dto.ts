@@ -15,6 +15,22 @@ export class GpuAutostartDto extends createZodDto(
     startWebhookUrl: z.string().url().or(z.literal('')).optional(),
     stopWebhookUrl: z.string().url().or(z.literal('')).optional(),
     webhookAuthHeader: z.string().max(2000).optional(),
+    // 'jarvislabs' drives the `jl` CLI instead of the webhooks above.
+    provider: z.enum(['webhook', 'jarvislabs']).optional(),
+    // JarvisLabs machine ids are numeric today, but the CLI treats them as
+    // opaque and resume can reassign them — so this stays a string.
+    jarvislabsMachineId: z
+      .string()
+      .trim()
+      .max(64)
+      .regex(/^[\w-]*$/, 'Instance id may only contain letters, numbers, hyphens and underscores')
+      .optional(),
+    jarvislabsGpuType: z
+      .string()
+      .trim()
+      .max(32)
+      .regex(/^[\w-]*$/, 'GPU type may only contain letters, numbers, hyphens and underscores')
+      .optional(),
   }),
 ) {}
 

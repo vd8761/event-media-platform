@@ -56,6 +56,11 @@ export interface EnvData {
     device: 'cpu' | 'cuda';
   };
 
+  jarvisLabs: {
+    apiKey: string;
+    binary: string;
+  };
+
   oauth: {
     google: { clientId?: string; clientSecret?: string };
     microsoft: { clientId?: string; clientSecret?: string };
@@ -294,6 +299,11 @@ const getEnv = (): EnvData => {
     machineLearning: {
       urls: (dto.MACHINE_LEARNING_URL || 'http://ml:3003').split(',').filter(Boolean),
       device: dto.EL_ML_DEVICE || 'cpu',
+    },
+
+    jarvisLabs: {
+      apiKey: dto.JL_API_KEY || '',
+      binary: dto.JL_BINARY || 'jl',
     },
 
     oauth: {

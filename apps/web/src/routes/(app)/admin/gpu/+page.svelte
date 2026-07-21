@@ -12,13 +12,19 @@
   // Local copy so a field being edited is not clobbered by the poll.
   let form = $state<{
     enabled: boolean;
+    provider: 'webhook' | 'jarvislabs';
     pendingThreshold: number;
     maxPendingAgeMinutes: number;
     idleShutdownMinutes: number;
     startWebhookUrl: string;
     stopWebhookUrl: string;
     webhookAuthHeader: string;
+    jarvislabsMachineId: string;
+    jarvislabsGpuType: string;
   } | null>(null);
+
+  // Result of the read-only provider check.
+  let testResult = $state<{ ok: boolean; detail: string } | null>(null);
 
   async function refresh() {
     status = await api.admin.gpu();
@@ -177,23 +183,95 @@
         </label>
       </div>
 
-      <div class="mt-4 grid gap-4 md:grid-cols-2">
-        <label class="block">
-          <span class="md-label-medium text-gray-600">Start webhook URL</span>
-          <input type="url" bind:value={form.startWebhookUrl} placeholder="https://…" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" />
-        </label>
-        <label class="block">
-          <span class="md-label-medium text-gray-600">Stop webhook URL</span>
-          <input type="url" bind:value={form.stopWebhookUrl} placeholder="https://…" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" />
-        </label>
+      <!-- How the box is actually started and stopped. JarvisLabs has no REST
+           API, so that provider shells out to the `jl` CLI on the API host. -->
+      <div class="mt-6 border-t border-gray-200 pt-5">
+        <span class="md-label-medium text-gray-600">Control method</span>
+        <div class="mt-2 flex flex-wrap gap-2">
+          {#each [['webhook', 'Webhooks'], ['jarvislabs', 'JarvisLabs CLI']] as [value, label] (value)}
+            <button
+              type="button"
+              onclick={() => form && (form.provider = value as 'webhook' | 'jarvislabs')}
+              class="md-label-large rounded-full px-4 py-2 transition {form.provider === value
+                ? 'bg-immich-primary text-white'
+                : 'bg-subtle text-gray-700 hover:bg-gray-200/70'}"
+            >
+              {label}
+            </button>
+          {/each}
+        </div>
       </div>
 
-      <label class="mt-4 block">
-        <span class="md-label-medium text-gray-600">Authorization header sent to both</span>
-        <input type="password" bind:value={form.webhookAuthHeader} placeholder="Bearer …" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" />
-      </label>
+      {#if form.provider === 'jarvislabs'}
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <label class="block">
+            <span class="md-label-medium text-gray-600">Instance ID</span>
+            <input
+              bind:value={form.jarvislabsMachineId}
+              placeholder="12345"
+              class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2"
+            />
+            <span class="md-body-small text-gray-500">
+              From <code>jl list</code>. Resume can reassign this — the live ID is tracked automatically.
+            </span>
+          </label>
+          <label class="block">
+            <span class="md-label-medium text-gray-600">Resume with GPU (optional)</span>
+            <input
+              bind:value={form.jarvislabsGpuType}
+              placeholder="A100"
+              class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2"
+            />
+            <span class="md-body-small text-gray-500">
+              Blank resumes on the original GPU. Resume is region-locked.
+            </span>
+          </label>
+        </div>
+        <p class="md-body-small mt-3 text-gray-500">
+          Needs <code>JL_API_KEY</code> set on the API host; the <code>jl</code> CLI ships in the backend image.
+          {#if status.state.machineId && status.state.machineId !== form.jarvislabsMachineId}
+            <span class="text-amber-600">Currently controlling instance {status.state.machineId}.</span>
+          {/if}
+        </p>
+      {:else}
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <label class="block">
+            <span class="md-label-medium text-gray-600">Start webhook URL</span>
+            <input type="url" bind:value={form.startWebhookUrl} placeholder="https://…" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" />
+          </label>
+          <label class="block">
+            <span class="md-label-medium text-gray-600">Stop webhook URL</span>
+            <input type="url" bind:value={form.stopWebhookUrl} placeholder="https://…" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" />
+          </label>
+        </div>
 
-      <div class="mt-5 flex justify-end">
+        <label class="mt-4 block">
+          <span class="md-label-medium text-gray-600">Authorization header sent to both</span>
+          <input type="password" bind:value={form.webhookAuthHeader} placeholder="Bearer …" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2" />
+        </label>
+      {/if}
+
+      {#if testResult}
+        <div
+          class="md-body-small mt-4 rounded-xl px-4 py-3 {testResult.ok
+            ? 'bg-green-50 text-green-800'
+            : 'bg-red-50 text-red-700'}"
+        >
+          {testResult.detail}
+        </div>
+      {/if}
+
+      <div class="mt-5 flex flex-wrap justify-end gap-2">
+        <Button
+          variant="outline"
+          disabled={busy}
+          onclick={() =>
+            run(async () => {
+              testResult = await api.admin.testGpuProvider();
+            })}
+        >
+          Test connection
+        </Button>
         <Button disabled={busy} onclick={() => form && run(() => api.admin.updateGpuConfig(form!))}>Save</Button>
       </div>
     </div>

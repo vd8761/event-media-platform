@@ -320,8 +320,13 @@ export interface OrgPerson {
   thumbnailUrl: string | null;
 }
 
+// 'webhook' POSTs to start/stop URLs; 'jarvislabs' runs the `jl` CLI on the
+// API host (JarvisLabs has no REST API).
+export type GpuProvider = 'webhook' | 'jarvislabs';
+
 export interface GpuAutostartConfig {
   enabled: boolean;
+  provider: GpuProvider;
   pendingThreshold: number;
   maxPendingAgeMinutes: number;
   idleShutdownMinutes: number;
@@ -329,6 +334,8 @@ export interface GpuAutostartConfig {
   startWebhookUrl: string;
   stopWebhookUrl: string;
   webhookAuthHeader: string;
+  jarvislabsMachineId: string;
+  jarvislabsGpuType: string;
 }
 
 export interface GpuLifecycleState {
@@ -338,6 +345,8 @@ export interface GpuLifecycleState {
   lastStartedAt: string | null;
   lastStoppedAt: string | null;
   lastError: string | null;
+  // JarvisLabs only — resume can hand back a different instance id.
+  machineId: string | null;
 }
 
 export interface GpuQueueSummary {
@@ -359,6 +368,8 @@ export interface GpuStatusResponse {
   // Why the box is or is not running, so the panel never leaves an operator
   // guessing at the thresholds.
   trigger: { shouldStart: boolean; reason: string };
+  // Whether the selected provider is actually usable from the API host.
+  providerReady: boolean;
 }
 
 export interface SystemStatus {
@@ -487,6 +498,8 @@ export const api = {
     system: () => get<SystemStatus>('/admin/system'),
     gpu: () => get<GpuStatusResponse>('/admin/gpu'),
     updateGpuConfig: (body: Partial<GpuAutostartConfig>) => put<GpuAutostartConfig>('/admin/gpu/config', body),
+    // Read-only provider check (runs `jl get` for JarvisLabs).
+    testGpuProvider: () => post<{ ok: boolean; detail: string }>('/admin/gpu/test', {}),
     startGpu: () => post<GpuLifecycleState>('/admin/gpu/start', {}),
     stopGpu: () => post<GpuLifecycleState>('/admin/gpu/stop', {}),
     updateRetention: (body: { purgeGraceHours: number }) =>

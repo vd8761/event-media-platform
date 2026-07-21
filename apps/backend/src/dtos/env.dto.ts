@@ -58,6 +58,13 @@ export const EnvSchema = z.object({
   // GPU VM so operators can see which sidecar build is deployed.
   EL_ML_DEVICE: z.enum(['cpu', 'cuda']).optional(),
 
+  // JarvisLabs GPU instance control. The `jl` CLI reads JL_API_KEY straight
+  // from the environment, so no `jl setup` / config file is needed — which is
+  // what makes this work on a read-only container filesystem.
+  JL_API_KEY: z.string().optional(),
+  // Override if the binary isn't on PATH under its default name.
+  JL_BINARY: z.string().optional(),
+
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   MS_CLIENT_ID: z.string().optional(),

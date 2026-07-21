@@ -14,6 +14,7 @@ import { SmartSearchRepository } from 'src/repositories/smart-search.repository'
 import { ImportRepository } from 'src/repositories/import.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
+import { JarvisLabsRepository } from 'src/repositories/jarvislabs.repository';
 import { MachineLearningRepository } from 'src/repositories/machine-learning.repository';
 import { MediaRepository } from 'src/repositories/media.repository';
 import { OrganizationRepository } from 'src/repositories/organization.repository';
@@ -42,6 +43,7 @@ export const repositories = [
   ImportRepository,
   JobRepository,
   LoggingRepository,
+  JarvisLabsRepository,
   MachineLearningRepository,
   MediaRepository,
   OrganizationRepository,

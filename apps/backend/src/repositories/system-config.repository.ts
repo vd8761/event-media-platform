@@ -35,13 +35,19 @@ export const EVENT_RETENTION_DEFAULTS: EventRetentionConfig = {
   purgeGraceHours: 24,
 };
 
-// When the GPU box should be woken, and how it is started and stopped.
+// How the GPU box is started and stopped.
 //
-// Provider-agnostic on purpose: start/stop are outbound webhooks, so this
-// works against JarvisLabs, Coolify, a cloud API or a home-grown script
-// without a code change.
+// Two providers:
+//   'webhook'    — outbound POSTs to start/stop URLs. Works against Coolify, a
+//                  cloud API or a home-grown script.
+//   'jarvislabs' — shells out to the `jl` CLI. JarvisLabs exposes no REST API,
+//                  only a CLI/SDK, so instance control has to run a process
+//                  rather than make an HTTP call (see JarvisLabsRepository).
+export type GpuProvider = 'webhook' | 'jarvislabs';
+
 export interface GpuAutostartConfig {
   enabled: boolean;
+  provider: GpuProvider;
   // Wake once this many jobs are waiting across the GPU queues.
   pendingThreshold: number;
   // …or once the oldest waiting job has been sitting this long, so a single
@@ -58,10 +64,21 @@ export interface GpuAutostartConfig {
   // Sent as `Authorization` on both calls. Stored in system_config, so treat
   // the config table as secret-bearing.
   webhookAuthHeader: string;
+
+  // --- provider: jarvislabs ---
+  // The instance to pause/resume. Seeds GpuLifecycleState.machineId; from then
+  // on the *state* holds the live id, because `jl resume` can hand back a new
+  // one (documented behaviour).
+  jarvislabsMachineId: string;
+  // Resume with a specific GPU type (e.g. 'A100'). Empty resumes on whatever
+  // the instance was created with. Resume is region-locked, so a type that
+  // isn't available in the instance's region will fail.
+  jarvislabsGpuType: string;
 }
 
 export const GPU_AUTOSTART_DEFAULTS: GpuAutostartConfig = {
   enabled: false,
+  provider: 'webhook',
   pendingThreshold: 25,
   maxPendingAgeMinutes: 120,
   idleShutdownMinutes: 10,
@@ -69,6 +86,8 @@ export const GPU_AUTOSTART_DEFAULTS: GpuAutostartConfig = {
   startWebhookUrl: '',
   stopWebhookUrl: '',
   webhookAuthHeader: '',
+  jarvislabsMachineId: '',
+  jarvislabsGpuType: '',
 };
 
 export type GpuState = 'off' | 'starting' | 'running' | 'stopping';
@@ -84,6 +103,11 @@ export interface GpuLifecycleState {
   lastStartedAt: string | null;
   lastStoppedAt: string | null;
   lastError: string | null;
+  // JarvisLabs only: the instance id currently in play. Tracked in state rather
+  // than config because `jl resume` may return a *different* id than the one it
+  // was given — pausing the stale id afterwards would leave the real box
+  // running and billing.
+  machineId: string | null;
 }
 
 export const GPU_LIFECYCLE_INITIAL: GpuLifecycleState = {
@@ -93,6 +117,7 @@ export const GPU_LIFECYCLE_INITIAL: GpuLifecycleState = {
   lastStartedAt: null,
   lastStoppedAt: null,
   lastError: null,
+  machineId: null,
 };
 
 @Injectable()

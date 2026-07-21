@@ -182,6 +182,9 @@ EL_TOKEN_ENCRYPTION_KEY=<openssl rand -hex 32>
 EL_PUBLIC_BASE_URL=https://your-app.vercel.app    # set in §7, after Vercel exists
 EL_STAGING_FOLDER=/tmp/staging                     # writable on Render
 EL_SESSION_TTL_DAYS=90
+
+# Pause/resume the JarvisLabs GPU box from the admin panel (see §6.4).
+JL_API_KEY=<jarvislabs.ai/settings/api-keys>
 ```
 
 Notes:
@@ -310,6 +313,26 @@ docker compose exec backend-worker sh -c 'wget -qO- http://ml:3003/ping'   # pon
 ```
 
 **Scaling to a second GPU VM:** identical stack plus `EL_QUEUES_EXCLUDE=facialRecognition`. Clustering must have exactly one consumer globally; every other queue load-balances via BullMQ automatically.
+
+### 6.5 Pausing and resuming the box from EventLens
+
+The GPU box is billed per second, so it should only be up when there is work. **Admin → GPU worker** decides when that is, and can pause/resume the JarvisLabs instance itself.
+
+JarvisLabs publishes **no REST API** — only the `jl` CLI and a Python SDK. So the API service controls the instance by running `jl` as a child process ([`jarvislabs.repository.ts`](../apps/backend/src/repositories/jarvislabs.repository.ts)) rather than calling a webhook. The backend image already ships the CLI: it is installed into an isolated virtualenv at `/opt/jarvislabs` and symlinked to `/usr/local/bin/jl`. A venv rather than a system `pip install` because Debian marks the system interpreter externally-managed (PEP 668), which refuses the plain install.
+
+Setup:
+
+1. Get a token from [jarvislabs.ai/settings/api-keys](https://jarvislabs.ai/settings/api-keys) and set `JL_API_KEY` on the **Render** service (§5.2). The CLI reads that variable directly, so no `jl setup` and no writable config file are needed — which is what makes this work on Render's read-only filesystem.
+2. Find the instance id with `jl list` locally.
+3. In **Admin → GPU worker → Autostart**, set **Control method** to **JarvisLabs CLI**, paste the **Instance ID**, and optionally a GPU type to resume with (blank keeps the original).
+4. Press **Test connection**. This runs `jl get` read-only and proves the binary, the token and the id all work before autostart depends on them.
+
+Two behaviours worth knowing:
+
+- **Resume can reassign the instance id.** The CLI documents this, so the id returned by `jl resume` is persisted into the lifecycle state and used for the subsequent pause. Pausing the stale id would leave the real machine running and billing — which is exactly the failure this avoids.
+- **Resume is region-locked.** An instance always resumes in the region it was created in; asking for a GPU type that region does not offer fails. Leave the GPU field blank unless you have a reason.
+
+A failed pause is not a runaway bill: the box also polls `/api/webhooks/gpu/heartbeat` and shuts *itself* down when the API says so or becomes unreachable. The CLI is the fast path; the heartbeat is the backstop.
 
 ---
 

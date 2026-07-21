@@ -6,14 +6,16 @@
 //   GpuLifecycleSweep (every 2 min) reads the GPU queue depth and the box's own
 //   heartbeat, then decides start / stop / do nothing.
 //
-// The box is started and stopped through outbound webhooks, so any provider
-// works. It is *kept alive* by polling us — see `heartbeat()` — rather than us
-// pushing to it. That direction matters: the box needs no inbound access, and
-// if this API is unreachable the box shuts itself down. The expensive resource
-// fails closed.
+// The box is started and stopped through one of two providers — outbound
+// webhooks, or the JarvisLabs `jl` CLI (which has no REST equivalent, so it
+// runs as a child process). It is *kept alive* by polling us — see
+// `heartbeat()` — rather than us pushing to it. That direction matters: the box
+// needs no inbound access, and if this API is unreachable the box shuts itself
+// down. The expensive resource fails closed.
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { OnJob } from 'src/decorators';
 import { JobName, JobStatus, QueueName } from 'src/enum';
+import { JarvisLabsRepository } from 'src/repositories/jarvislabs.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
 import {
@@ -42,6 +44,7 @@ export interface GpuQueueSummary {
 @Injectable()
 export class GpuLifecycleService {
   constructor(
+    private jarvisLabsRepository: JarvisLabsRepository,
     private jobRepository: JobRepository,
     private logger: LoggingRepository,
     private systemConfigRepository: SystemConfigRepository,
@@ -75,7 +78,46 @@ export class GpuLifecycleService {
       // Surfaced so the panel can explain *why* the box is or isn't running
       // rather than leaving an operator guessing at the thresholds.
       trigger: this.evaluateTrigger(config, queues, pending),
+      // Whether the selected provider is actually usable from this host, so
+      // the panel can warn before someone relies on autostart.
+      providerReady:
+        config.provider === 'jarvislabs'
+          ? this.jarvisLabsRepository.isConfigured() && !!config.jarvislabsMachineId
+          : !!config.startWebhookUrl && !!config.stopWebhookUrl,
     };
+  }
+
+  // Verify the provider end to end without changing anything: for JarvisLabs
+  // this actually shells out to `jl get`, which proves the binary exists, the
+  // API key works and the instance id is real.
+  async testProvider(): Promise<{ ok: boolean; detail: string }> {
+    const config = await this.systemConfigRepository.getGpuAutostartConfig();
+    if (config.provider !== 'jarvislabs') {
+      const configured = !!config.startWebhookUrl && !!config.stopWebhookUrl;
+      return {
+        ok: configured,
+        detail: configured ? 'Start and stop webhooks are configured' : 'Start/stop webhook URLs are missing',
+      };
+    }
+
+    if (!this.jarvisLabsRepository.isConfigured()) {
+      return { ok: false, detail: 'JL_API_KEY is not set on the API host' };
+    }
+    const state = await this.systemConfigRepository.getGpuLifecycleState();
+    const target = state.machineId || config.jarvislabsMachineId;
+    if (!target) {
+      return { ok: false, detail: 'No JarvisLabs instance id is configured' };
+    }
+
+    try {
+      const instance = await this.jarvisLabsRepository.get(target);
+      if (!instance) {
+        return { ok: false, detail: `JarvisLabs returned no instance for id ${target}` };
+      }
+      return { ok: true, detail: `Instance ${instance.machineId} is ${instance.status ?? 'reachable'}` };
+    } catch (error) {
+      return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   // Per-queue depth plus how long the oldest waiting job has been sitting —
@@ -105,18 +147,32 @@ export class GpuLifecycleService {
   // least the idle window, so a manual run is not undone by the next sweep.
   async startNow(reason: string): Promise<GpuLifecycleState> {
     const config = await this.systemConfigRepository.getGpuAutostartConfig();
-    if (!config.startWebhookUrl) {
-      throw new BadRequestException('No GPU start webhook is configured');
-    }
+    this.assertControllable(config);
     return this.start(config, reason, true);
   }
 
   async stopNow(reason: string): Promise<GpuLifecycleState> {
     const config = await this.systemConfigRepository.getGpuAutostartConfig();
-    if (!config.stopWebhookUrl) {
-      throw new BadRequestException('No GPU stop webhook is configured');
-    }
+    this.assertControllable(config);
     return this.stop(config, reason);
+  }
+
+  // Fail loudly and specifically on a manual click — an operator pressing
+  // "Process all" against a half-configured provider should be told exactly
+  // what is missing, not left watching a state that never changes.
+  private assertControllable(config: GpuAutostartConfig) {
+    if (config.provider === 'jarvislabs') {
+      if (!this.jarvisLabsRepository.isConfigured()) {
+        throw new BadRequestException('JarvisLabs control needs JL_API_KEY set on the API host');
+      }
+      if (!config.jarvislabsMachineId) {
+        throw new BadRequestException('No JarvisLabs instance id is configured');
+      }
+      return;
+    }
+    if (!config.startWebhookUrl || !config.stopWebhookUrl) {
+      throw new BadRequestException('No GPU start/stop webhook is configured');
+    }
   }
 
   // --- the box asks us whether to stay up ---
@@ -309,6 +365,31 @@ export class GpuLifecycleService {
     await this.setState(pendingState);
 
     this.logger.log(`Starting GPU worker (${reason})`);
+
+    if (config.provider === 'jarvislabs') {
+      const target = state.machineId || config.jarvislabsMachineId;
+      if (!target) {
+        const failed: GpuLifecycleState = { ...pendingState, state: 'off', lastError: 'no JarvisLabs instance id' };
+        await this.setState(failed);
+        return failed;
+      }
+      try {
+        const instance = await this.jarvisLabsRepository.resume(target, config.jarvislabsGpuType || undefined);
+        // Persist the id the CLI handed back: resume can reassign it, and a
+        // stale id would make the later pause a no-op against a dead machine
+        // while the real one keeps billing.
+        const started: GpuLifecycleState = { ...pendingState, machineId: instance.machineId };
+        await this.setState(started);
+        return started;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const failed: GpuLifecycleState = { ...pendingState, state: 'off', lastError: message };
+        await this.setState(failed);
+        this.logger.error(`JarvisLabs resume failed: ${message}`);
+        return failed;
+      }
+    }
+
     const error = await this.callWebhook(config.startWebhookUrl, config.webhookAuthHeader, { action: 'start', reason });
     if (error) {
       const failed: GpuLifecycleState = { ...pendingState, state: 'off', lastError: error };
@@ -327,6 +408,31 @@ export class GpuLifecycleService {
     await this.setState(stopping);
 
     this.logger.log(`Stopping GPU worker (${reason})`);
+
+    if (config.provider === 'jarvislabs') {
+      const target = state.machineId || config.jarvislabsMachineId;
+      if (!target) {
+        const failed: GpuLifecycleState = { ...stopping, lastError: 'no JarvisLabs instance id' };
+        await this.setState(failed);
+        return failed;
+      }
+      try {
+        await this.jarvisLabsRepository.pause(target);
+        const stopped: GpuLifecycleState = { ...stopping, state: 'off', since: now, lastStoppedAt: now };
+        await this.setState(stopped);
+        return stopped;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // Deliberately left in `stopping`, same as the webhook path: the box's
+        // own heartbeat also tells it to shut down, so a failed pause is not a
+        // runaway bill — and the state keeps the failure visible on the panel.
+        const failed: GpuLifecycleState = { ...stopping, lastError: message };
+        await this.setState(failed);
+        this.logger.error(`JarvisLabs pause failed: ${message} — the worker should still self-stop via heartbeat`);
+        return failed;
+      }
+    }
+
     const error = await this.callWebhook(config.stopWebhookUrl, config.webhookAuthHeader, { action: 'stop', reason });
     if (error) {
       // Left in `stopping` on purpose. The box's own heartbeat will also tell

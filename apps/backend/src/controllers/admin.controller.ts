@@ -105,6 +105,15 @@ export class AdminController {
     return this.gpuLifecycleService.stopNow(`manual stop by ${auth.user!.email}`);
   }
 
+  // Read-only provider check — for JarvisLabs this runs `jl get`, proving the
+  // binary, API key and instance id all work before autostart depends on them.
+  @Post('gpu/test')
+  @HttpCode(200)
+  @Authenticated({ superAdmin: true })
+  testGpuProvider() {
+    return this.gpuLifecycleService.testProvider();
+  }
+
   @Put('retention')
   @Authenticated({ superAdmin: true })
   updateRetention(@Body() dto: EventRetentionDto) {
