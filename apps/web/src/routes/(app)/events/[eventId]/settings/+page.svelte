@@ -10,7 +10,9 @@
   let name = $state(data.event.name);
   let slug = $state(data.event.slug);
   let description = $state(data.event.description ?? '');
-  let status = $state(data.event.status);
+  // Draft/Active now lives on the event page as a switch. Still sent on save so
+  // editing the name here cannot silently reset a status changed elsewhere.
+  const status = $derived(data.event.status);
   let participantPageEnabled = $state(data.event.participantPageEnabled);
   let participantsSeeAllPhotos = $state(data.event.participantsSeeAllPhotos);
   let participantsCanDownloadAll = $state(data.event.participantsCanDownloadAll);
@@ -143,14 +145,6 @@
     <div>
       <label for="description" class="immich-form-label mb-1.5 block">Description</label>
       <Textarea id="description" bind:value={description} rows={3} />
-    </div>
-    <div>
-      <label for="status" class="immich-form-label mb-1.5 block">Status</label>
-      <select id="status" bind:value={status} class="immich-form-input">
-        <option value="draft">draft — hidden from participants</option>
-        <option value="active">active — public page live</option>
-        <option value="closed">closed</option>
-      </select>
     </div>
     <div class="md-surface flex items-center justify-between gap-4 px-4 py-4">
       <div>

@@ -8,7 +8,7 @@
   import ProcessingBar from '$lib/components/ProcessingBar.svelte';
   import { uploadStore } from '$lib/uploads.svelte';
   import SelectionBar from '$lib/components/SelectionBar.svelte';
-  import { Button, Icon, IconButton, LoadingSpinner, Switch } from '@immich/ui';
+  import { Button, Icon, IconButton, LoadingSpinner } from '@immich/ui';
   import {
     mdiAlertCircleOutline,
     mdiCheckCircle,
@@ -256,12 +256,34 @@
       <!-- Draft/Active as a switch rather than a select buried in settings: it
            is the one setting an organiser flips repeatedly, and it decides
            whether the public link works at all. -->
-      <label class="flex items-center gap-2 text-sm">
-        <Switch checked={isActive} onCheckedChange={setActive} disabled={statusBusy} />
+      <!-- A plain button, not a bound Switch: bits-ui owns its own checked
+           state, so a controlled `checked` prop plus onCheckedChange fought
+           with the optimistic update and the thumb snapped back. This is one
+           source of truth — `status` — and one handler. -->
+      <button
+        type="button"
+        role="switch"
+        aria-checked={isActive}
+        aria-label="Event status"
+        disabled={statusBusy}
+        onclick={() => setActive(!isActive)}
+        class="flex items-center gap-2 text-sm disabled:opacity-60"
+      >
+        <span
+          class="relative h-6 w-11 shrink-0 rounded-full transition-colors {isActive
+            ? 'bg-primary'
+            : 'bg-gray-400/50'}"
+        >
+          <span
+            class="absolute top-0.5 size-5 rounded-full bg-white shadow transition-all {isActive
+              ? 'start-[1.375rem]'
+              : 'start-0.5'}"
+          ></span>
+        </span>
         <span class="font-medium {isActive ? 'text-primary' : 'text-gray-500'}">
           {isActive ? 'Active' : 'Draft'}
         </span>
-      </label>
+      </button>
     {/if}
 
     {#if isActive}

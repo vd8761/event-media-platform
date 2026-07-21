@@ -51,18 +51,29 @@
       class="group/face pointer-events-auto absolute"
       style="left: {face.x * 100}%; top: {face.y * 100}%; width: {face.width * 100}%; height: {face.height * 100}%"
     >
-      <!-- the outline itself -->
+      <!-- The outline is invisible until the face is hovered or focused. A
+           permanent grid of boxes and name plates covers the photo you came to
+           look at — especially on a group shot, where it becomes a wall of
+           labels. Hover reveals one at a time. -->
       <button
         data-md-raw
-        class="absolute inset-0 rounded-lg border-2 border-white/85 shadow-[0_0_0_1px_rgba(0,0,0,0.35)] transition
-          hover:border-white focus-visible:border-white focus-visible:outline-none
+        class="absolute inset-0 rounded-lg border-2 border-transparent transition
+          group-hover/face:border-white/85 group-hover/face:shadow-[0_0_0_1px_rgba(0,0,0,0.35)]
+          focus-visible:border-white focus-visible:shadow-[0_0_0_1px_rgba(0,0,0,0.35)] focus-visible:outline-none
           {clickable ? 'cursor-pointer' : 'cursor-default'}"
         aria-label={clickable ? `View photos of ${face.name || 'this person'}` : (face.name || 'Unidentified face')}
         onclick={() => clickable && onOpenPerson?.(face.personId!)}
       ></button>
 
-      <!-- name plate, pinned under the box -->
-      <div class="absolute start-1/2 top-full flex -translate-x-1/2 translate-y-1.5 items-center gap-1">
+      <!-- Name plate, pinned under the box. Hidden with the outline, and
+           pointer-events-none while hidden so an invisible plate cannot
+           swallow a click meant for the photo. -->
+      <div
+        class="absolute start-1/2 top-full flex -translate-x-1/2 translate-y-1.5 items-center gap-1 opacity-0
+          transition-opacity group-hover/face:pointer-events-auto group-hover/face:opacity-100
+          group-focus-within/face:pointer-events-auto group-focus-within/face:opacity-100"
+        style="pointer-events: none"
+      >
         <span
           class="md-label-medium flex max-w-[9rem] items-center gap-1 truncate rounded-full bg-black/75 px-2.5 py-1
             text-white backdrop-blur-sm transition group-hover/face:bg-black/90

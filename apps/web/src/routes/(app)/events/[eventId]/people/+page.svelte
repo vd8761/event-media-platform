@@ -59,10 +59,13 @@
       if (aNamed !== bNamed) {
         return bNamed - aNamed;
       }
-      if (aNamed === 1) {
-        return a.name.localeCompare(b.name);
+      // Count before name for everyone, named or not: the biggest clusters are
+      // the ones worth looking at first either way. Name is the tie break, so
+      // equal-count people keep a stable order between loads.
+      if (a.faceCount !== b.faceCount) {
+        return b.faceCount - a.faceCount;
       }
-      return b.faceCount - a.faceCount;
+      return (a.name ?? '').localeCompare(b.name ?? '');
     }),
   );
 
@@ -240,12 +243,12 @@
                   <img
                     src={person.thumbnailUrl}
                     alt={person.name || 'Unnamed person'}
-                    class="h-full w-full rounded-full object-cover shadow {isPicked
+                    class="h-full w-full rounded-2xl object-cover shadow {isPicked
                       ? 'ring-immich-primary ring-4 ring-offset-2'
                       : ''}"
                   />
                 {:else}
-                  <div class="flex h-full w-full items-center justify-center rounded-full bg-gray-100 text-gray-400">
+                  <div class="flex h-full w-full items-center justify-center rounded-2xl bg-gray-100 text-gray-400">
                     <LoadingSpinner />
                   </div>
                 {/if}
@@ -268,11 +271,11 @@
                 <img
                   src={person.thumbnailUrl}
                   alt={person.name || 'Unnamed person'}
-                  class="mx-auto aspect-square w-full rounded-full object-cover shadow transition group-hover:brightness-95"
+                  class="mx-auto aspect-square w-full rounded-2xl object-cover shadow transition group-hover:brightness-95"
                 />
               {:else}
                 <div
-                  class="mx-auto flex aspect-square w-full items-center justify-center rounded-full bg-gray-100 text-gray-400"
+                  class="mx-auto flex aspect-square w-full items-center justify-center rounded-2xl bg-gray-100 text-gray-400"
                   title="Portrait still being generated"
                 >
                   <LoadingSpinner />

@@ -96,6 +96,26 @@ export class PersonRepository {
       .execute() as Promise<OrgPerson[]>;
   }
 
+  // The person clusters that a set of faces belong to, with how many of those
+  // faces landed in each. Used to work out which cluster a matched participant
+  // actually is, when their faces are spread across more than one.
+  async getPersonsForFaces(faceIds: string[]): Promise<{ personId: string; name: string; faces: number }[]> {
+    if (faceIds.length === 0) {
+      return [];
+    }
+    const rows = await this.db
+      .selectFrom('assetFace')
+      .innerJoin('person', 'person.id', 'assetFace.personId')
+      .where('assetFace.id', 'in', faceIds)
+      .where('assetFace.personId', 'is not', null)
+      .select(['person.id as personId', 'person.name', sql<string>`count(*)`.as('faces')])
+      .groupBy(['person.id', 'person.name'])
+      .orderBy(sql`count(*)`, 'desc')
+      .execute();
+
+    return rows.map((row) => ({ personId: row.personId, name: row.name, faces: Number(row.faces) }));
+  }
+
   update(eventId: string, personId: string, dto: Partial<{ name: string; isHidden: boolean; thumbnailKey: string; faceAssetFaceId: string | null }>): Promise<Person> {
     return this.db
       .updateTable('person')

@@ -15,6 +15,7 @@ import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
 import { MachineLearningRepository } from 'src/repositories/machine-learning.repository';
 import { ParticipantRepository } from 'src/repositories/participant.repository';
+import { PersonRepository } from 'src/repositories/person.repository';
 import { StorageRepository } from 'src/repositories/storage.repository';
 import { FacialRecognitionConfig, SystemConfigRepository } from 'src/repositories/system-config.repository';
 import { Participant } from 'src/schema';
@@ -35,6 +36,7 @@ export class ParticipantService {
     private logger: LoggingRepository,
     private machineLearningRepository: MachineLearningRepository,
     private participantRepository: ParticipantRepository,
+    private personRepository: PersonRepository,
     private storageRepository: StorageRepository,
     private systemConfigRepository: SystemConfigRepository,
   ) {
@@ -126,6 +128,36 @@ export class ParticipantService {
     }
   }
 
+  // Name the cluster a matched participant belongs to.
+  //
+  // Deliberately conservative in three ways:
+  //
+  //  - Only the dominant cluster is named. Clustering is imperfect, so one
+  //    person's faces can land in several clusters; spraying the name across
+  //    all of them would label strangers who happened to match loosely.
+  //  - An already-named person is left alone. The organiser may have named
+  //    them by hand, and a guest's self-reported name must not overwrite that.
+  //  - Failures are swallowed. This is a nicety on top of matching; it must
+  //    never fail a selfie that otherwise worked.
+  private async nameMatchedPerson(participant: Participant, faceIds: string[]): Promise<void> {
+    if (!participant.name || faceIds.length === 0) {
+      return;
+    }
+
+    try {
+      const clusters = await this.personRepository.getPersonsForFaces(faceIds);
+      const dominant = clusters[0];
+      if (!dominant || dominant.name) {
+        return;
+      }
+
+      await this.personRepository.update(participant.eventId, dominant.personId, { name: participant.name });
+      this.logger.log(`Named person ${dominant.personId} "${participant.name}" from participant ${participant.id}`);
+    } catch (error) {
+      this.logger.warn(`Could not name the person for participant ${participant.id}: ${error}`);
+    }
+  }
+
   // --- the one shared matching function (docs/plan/07 §3) ---
   // Face-level KNN directly against face_search — all detected faces of the
   // event, clustered or not. Returns the number of NEW matches inserted.
@@ -172,6 +204,14 @@ export class ParticipantService {
         distance: hit.distance,
       })),
     );
+
+    // Carry the participant's name onto their person cluster, so the organiser's
+    // People tab shows "Priya" rather than an unnamed face they have to identify
+    // by hand. Matching previously only recorded participant->asset rows, which
+    // is what the guest gallery reads — the organiser-facing cluster was never
+    // touched, so a guest could submit a selfie with their name and the
+    // organiser would still see nobody.
+    await this.nameMatchedPerson(participant, [...best.keys()]);
 
     const total = await this.participantRepository.countMatches(participant.id);
     await this.participantRepository.update(participant.id, {

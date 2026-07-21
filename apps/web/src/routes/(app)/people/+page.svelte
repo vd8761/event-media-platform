@@ -51,10 +51,25 @@
       byEvent.set(person.eventId, group);
     }
     for (const group of byEvent.values()) {
-      group.people.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+      group.people.sort(comparePeople);
     }
     return [...byEvent.values()].sort((a, b) => a.eventName.localeCompare(b.eventName));
   });
+
+  // Named before unnamed, then most-photographed, then alphabetical. The tie
+  // break matters: without it two people with equal counts reorder on every
+  // load, because the server's ordering is not stable.
+  function comparePeople(a: OrgPerson, b: OrgPerson) {
+    const aNamed = a.name ? 1 : 0;
+    const bNamed = b.name ? 1 : 0;
+    if (aNamed !== bNamed) {
+      return bNamed - aNamed;
+    }
+    if (a.faceCount !== b.faceCount) {
+      return b.faceCount - a.faceCount;
+    }
+    return (a.name ?? '').localeCompare(b.name ?? '');
+  }
 
   function initials(name: string | null): string {
     if (!name) {
@@ -108,7 +123,7 @@
             class="group flex flex-col items-center gap-1.5 text-center"
           >
             <div
-              class="relative aspect-square w-full overflow-hidden rounded-full bg-subtle ring-1 ring-black/5 transition group-hover:ring-2 group-hover:ring-immich-primary"
+              class="relative aspect-square w-full overflow-hidden rounded-2xl bg-subtle ring-1 ring-black/5 transition group-hover:ring-2 group-hover:ring-immich-primary"
             >
               {#if person.thumbnailUrl}
                 <img src={person.thumbnailUrl} alt="" loading="lazy" class="h-full w-full object-cover" />

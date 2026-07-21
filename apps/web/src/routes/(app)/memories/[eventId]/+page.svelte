@@ -279,10 +279,15 @@
                 <!-- max-* rather than h-full/w-full: the image keeps its own
                      aspect and is bounded by the frame, so a portrait fits to
                      height and a landscape to width without ever cropping. -->
+                <!-- h-full/w-full + object-contain, not max-*: max-* only ever
+                     shrinks, so a preview derivative smaller than the frame
+                     rendered at its own modest natural size and left the stage
+                     mostly empty. object-contain scales in both directions and
+                     still never crops. -->
                 <img
                   src={currentAsset.previewUrl}
                   alt=""
-                  class="max-h-full max-w-full rounded-2xl object-contain shadow-2xl"
+                  class="h-full w-full rounded-2xl object-contain drop-shadow-2xl"
                 />
               {/if}
             {/key}
