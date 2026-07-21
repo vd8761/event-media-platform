@@ -133,6 +133,18 @@
         <p class="mb-3 text-xs text-gray-400">
           Device is read from configuration (EL_ML_DEVICE), not probed from the sidecar.
         </p>
+
+        {#if !system.machineLearning.usedByThisProcess}
+          <!-- This API host runs api/ingest and never does inference; the GPU
+               box reaches its own sidecar over a network this process is not
+               on. Showing a failed health check here would be a permanent red
+               light on a healthy deployment. -->
+          <p class="text-xs text-gray-500">
+            Not used by this process — inference runs on the <span class="font-mono">media</span> worker, which reaches
+            its own sidecar directly. See the machine list below for that worker's status.
+          </p>
+        {/if}
+
         <div class="space-y-2">
           {#each system.machineLearning.servers as server (server.url)}
             <div class="flex items-center justify-between gap-3 text-xs">

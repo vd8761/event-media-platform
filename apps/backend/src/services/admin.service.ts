@@ -4,7 +4,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Kysely, sql } from 'kysely';
 import { InjectKysely } from 'nestjs-kysely';
 import { arch, cpus, freemem, platform, totalmem, uptime } from 'node:os';
-import { JobName, QueueCleanType, QueueName, SystemConfigKey } from 'src/enum';
+import { JobName, QueueCleanType, QueueName, SystemConfigKey, WorkerRole } from 'src/enum';
 import {
   EventRetentionConfig,
   GpuAutostartConfig,
@@ -264,9 +264,21 @@ export class AdminService {
   // — os.cpus() here would only ever describe the API's own container.
   async getSystemStatus() {
     const env = this.configRepository.getEnv();
+
+    // Only probe ML from a process that actually calls it.
+    //
+    // The API host runs `api,ingest` and never does inference — that belongs to
+    // the `media` role on the GPU box, which reaches its sidecar over a compose
+    // network the API is not on. Pinging `http://ml:3003` from Render therefore
+    // fails by design, and reporting that as "unreachable" on the dashboard is
+    // a permanent red light on a perfectly healthy deployment. It is the kind
+    // of false alarm that trains people to ignore the panel.
+    const usesMachineLearning =
+      env.workers.includes(WorkerRole.Media) || env.includedQueues.includes(QueueName.Selfie);
+
     const [cpuPercent, mlServers, instances] = await Promise.all([
       sampleCpuPercent(),
-      this.machineLearningRepository.getServerStatus(),
+      usesMachineLearning ? this.machineLearningRepository.getServerStatus() : Promise.resolve([]),
       this.telemetryRepository.getInstances().catch(() => []),
     ]);
 
@@ -278,6 +290,9 @@ export class AdminService {
       machineLearning: {
         device: env.machineLearning.device,
         deviceIsConfigured: true,
+        // False on the API host: the panel then says so rather than showing a
+        // failed health check for an endpoint this process is not meant to use.
+        usedByThisProcess: usesMachineLearning,
         servers: mlServers,
       },
       // The API's own host, measured directly — kept so the panel still shows

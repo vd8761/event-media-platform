@@ -404,6 +404,9 @@ export interface SystemStatus {
   machineLearning: {
     device: 'cpu' | 'cuda';
     deviceIsConfigured: boolean;
+    // False on an api/ingest host: it never calls ML, so a health check there
+    // would fail by design and mean nothing.
+    usedByThisProcess: boolean;
     servers: { url: string; healthy: boolean; latencyMs: number | null }[];
   };
   host: {
