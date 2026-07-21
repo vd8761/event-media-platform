@@ -249,7 +249,13 @@
       </div>
     {:else}
       <!-- stage: previous-event peek | current photo | next-event peek -->
-      <div class="mx-auto flex h-[60vh] max-w-6xl items-center justify-center gap-3 overflow-hidden px-3 pb-6 sm:gap-6 sm:px-6">
+      <!-- Real viewport height rather than a fixed 60vh: the photo should be
+           limited by whichever dimension actually binds on this screen, and a
+           short fixed stage left a portrait shrunk with unused space above and
+           below it. dvh so mobile browser chrome does not clip it. -->
+      <div
+        class="mx-auto flex h-[calc(100dvh-11rem)] min-h-[18rem] max-w-7xl items-center justify-center gap-3 overflow-hidden px-3 pb-6 sm:gap-6 sm:px-6"
+      >
         <button
           type="button"
           aria-label="Previous event"
@@ -263,11 +269,21 @@
           {/if}
         </button>
 
-        <div class="relative h-full min-w-0 flex-1 overflow-hidden rounded-2xl bg-black shadow-2xl">
+        <!-- No black plate behind the image: with the frame sized to the
+             viewport, a letterbox box just draws bars around a photo that is
+             already centred on the dark stage. -->
+        <div class="relative flex h-full min-w-0 flex-1 items-center justify-center overflow-hidden">
           {#if currentAsset}
             {#key currentAsset.id}
               {#if currentAsset.previewUrl}
-                <img src={currentAsset.previewUrl} alt="" class="h-full w-full object-contain" />
+                <!-- max-* rather than h-full/w-full: the image keeps its own
+                     aspect and is bounded by the frame, so a portrait fits to
+                     height and a landscape to width without ever cropping. -->
+                <img
+                  src={currentAsset.previewUrl}
+                  alt=""
+                  class="max-h-full max-w-full rounded-2xl object-contain shadow-2xl"
+                />
               {/if}
             {/key}
           {/if}

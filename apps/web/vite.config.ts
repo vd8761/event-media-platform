@@ -1,9 +1,13 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
+import { functionsMixins } from 'vite-plugin-functions-mixins';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  plugins: [tailwindcss(), sveltekit()],
+  // functionsMixins resolves m3-svelte's CSS mixins (@apply --m3-*). It runs
+  // over the dependency rather than our own source, so Tailwind keeps owning
+  // everything we write and the two only meet inside m3-svelte's components.
+  plugins: [functionsMixins({ deps: ['m3-svelte'] }), tailwindcss(), sveltekit()],
   server: {
     // web-only development against the local backend
     proxy: {

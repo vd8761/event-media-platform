@@ -8,7 +8,7 @@
   import ProcessingBar from '$lib/components/ProcessingBar.svelte';
   import { uploadStore } from '$lib/uploads.svelte';
   import SelectionBar from '$lib/components/SelectionBar.svelte';
-  import { Button, Icon, IconButton, LoadingSpinner } from '@immich/ui';
+  import { Button, Icon, IconButton, LoadingSpinner, Switch } from '@immich/ui';
   import {
     mdiAlertCircleOutline,
     mdiCheckCircle,
@@ -17,6 +17,8 @@
     mdiClose,
     mdiImageOff,
     mdiUpload,
+    mdiLinkVariant,
+    mdiCheck,
   } from '@mdi/js';
   import { onDestroy, onMount } from 'svelte';
 
@@ -200,6 +202,43 @@
     await refresh(true);
     await openFromQuery();
   });
+  // --- draft / active ---
+  let status = $state(data.event.status);
+  let statusBusy = $state(false);
+  let statusError = $state('');
+  let copied = $state(false);
+  const isActive = $derived(status === 'active');
+
+  async function setActive(next: boolean) {
+    const previous = status;
+    // Optimistic: the switch should move under the finger, not after a round
+    // trip. Reverted below if the server disagrees.
+    status = next ? 'active' : 'draft';
+    statusBusy = true;
+    statusError = '';
+    try {
+      await api.events.update(eventId, { status: status as typeof data.event.status });
+    } catch (err) {
+      status = previous;
+      statusError = err instanceof Error ? err.message : 'Could not change the status';
+    } finally {
+      statusBusy = false;
+    }
+  }
+
+  async function copyShareLink() {
+    const url = `${location.origin}/e/${data.event.slug}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      copied = true;
+      setTimeout(() => (copied = false), 2000);
+    } catch {
+      // Clipboard is blocked outside a secure context or without permission;
+      // showing the URL still lets someone copy it by hand.
+      statusError = `Copy failed — the link is ${url}`;
+    }
+  }
+
   onDestroy(() => {
     if (pollTimer) {
       clearInterval(pollTimer);
@@ -209,8 +248,30 @@
 
 <svelte:head><title>{data.event.name} — EventLens</title></svelte:head>
 
-<div class="mb-4 flex items-center justify-between gap-4">
-  <p class="text-sm text-gray-500">{assets.length} item{assets.length === 1 ? '' : 's'}</p>
+<div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+  <div class="flex flex-wrap items-center gap-3">
+    <p class="text-sm text-gray-500">{assets.length} item{assets.length === 1 ? '' : 's'}</p>
+
+    {#if canManage}
+      <!-- Draft/Active as a switch rather than a select buried in settings: it
+           is the one setting an organiser flips repeatedly, and it decides
+           whether the public link works at all. -->
+      <label class="flex items-center gap-2 text-sm">
+        <Switch checked={isActive} onCheckedChange={setActive} disabled={statusBusy} />
+        <span class="font-medium {isActive ? 'text-primary' : 'text-gray-500'}">
+          {isActive ? 'Active' : 'Draft'}
+        </span>
+      </label>
+    {/if}
+
+    {#if isActive}
+      <!-- Only shown once the event is live: handing out a link to a draft
+           event gives guests a page that rejects them. -->
+      <Button size="small" leadingIcon={copied ? mdiCheck : mdiLinkVariant} onclick={copyShareLink}>
+        {copied ? 'Link copied' : 'Share link'}
+      </Button>
+    {/if}
+  </div>
   <input
     bind:this={fileInput}
     type="file"
@@ -226,6 +287,10 @@
     <Button leadingIcon={mdiUpload} onclick={() => fileInput?.click()}>Upload</Button>
   </div>
 </div>
+
+{#if statusError}
+  <div class="mb-3 rounded-2xl bg-red-500/10 px-4 py-2 text-sm text-red-600">{statusError}</div>
+{/if}
 
 {#if selecting}
   <SelectionBar
