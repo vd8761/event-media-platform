@@ -76,6 +76,10 @@ export class GpuLifecycleService {
       queues,
       pending,
       workerOnline,
+      // The page renders a countdown against holdUntil. Sending our clock lets
+      // it compute an offset once and tick locally, so a browser whose clock is
+      // minutes out does not show a wrong — or negative — remaining time.
+      serverNow: new Date().toISOString(),
       oldestPendingAgeSeconds: oldestAges.length > 0 ? Math.max(...oldestAges) : null,
       // Surfaced so the panel can explain *why* the box is or isn't running
       // rather than leaving an operator guessing at the thresholds.
@@ -144,6 +148,53 @@ export class GpuLifecycleService {
   }
 
   // --- manual control ---
+
+  // Hold the box up for a fixed window regardless of queue depth.
+  //
+  // Deliberately does *not* start the box: this is "do not shut down", not
+  // "turn on". Someone extending a hold while a batch finishes should not have
+  // a stopped box resumed under them, and resuming costs money.
+  //
+  // Extending is absolute rather than additive — pressing Renew twice sets one
+  // hour from now, not two. A button whose effect depends on how many times it
+  // was clicked is how people end up paying for an idle GPU overnight.
+  async holdIdle(minutes: number, userId: string): Promise<GpuLifecycleState> {
+    const state = await this.systemConfigRepository.getGpuLifecycleState();
+    const holdUntil = new Date(Date.now() + minutes * 60_000).toISOString();
+    const next = { ...state, holdUntil };
+    await this.setState(next);
+
+    await this.auditLogService.record({
+      category: AuditCategory.Gpu,
+      action: 'gpu.hold.set',
+      message: `Idle shutdown paused for ${minutes} minutes — the box will stay up until ${holdUntil}`,
+      detail: { minutes, holdUntil, previousHoldUntil: state.holdUntil, state: state.state },
+      userId,
+    });
+
+    return next;
+  }
+
+  // Drop the hold and hand the box back to the configured idle policy. The very
+  // next sweep may stop it, which is the point.
+  async clearHold(userId: string): Promise<GpuLifecycleState> {
+    const [state, config] = await Promise.all([
+      this.systemConfigRepository.getGpuLifecycleState(),
+      this.systemConfigRepository.getGpuAutostartConfig(),
+    ]);
+    const next = { ...state, holdUntil: null };
+    await this.setState(next);
+
+    await this.auditLogService.record({
+      category: AuditCategory.Gpu,
+      action: 'gpu.hold.cleared',
+      message: `Idle shutdown resumed — the box may stop after ${config.idleShutdownMinutes} idle minutes`,
+      detail: { clearedHoldUntil: state.holdUntil, idleShutdownMinutes: config.idleShutdownMinutes },
+      userId,
+    });
+
+    return next;
+  }
 
   // "Process all" — start regardless of thresholds and hold the box up for at
   // least the idle window, so a manual run is not undone by the next sweep.

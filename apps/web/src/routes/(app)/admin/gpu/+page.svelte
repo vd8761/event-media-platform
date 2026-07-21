@@ -26,8 +26,80 @@
   // Result of the read-only provider check.
   let testResult = $state<{ ok: boolean; detail: string } | null>(null);
 
+  // --- idle-shutdown hold ---
+  // The server owns the deadline; the page only renders it. `serverNow` from
+  // the same response gives us a clock offset, so the countdown stays right on
+  // a browser whose clock is wrong — otherwise a skewed laptop shows a hold
+  // that has "expired" while the box is very much still up and billing.
+  const HOLD_MINUTES = 60;
+  // How close to expiry we warn. Long enough to actually react — finding a tab,
+  // reading the message and clicking renew — before the box goes.
+  const WARN_AT_MS = 5 * 60 * 1000;
+
+  let clockOffsetMs = $state(0);
+  // Ticks once a second purely to drive the display; the deadline itself never
+  // comes from here.
+  let nowMs = $state(Date.now());
+  let tickTimer: ReturnType<typeof setInterval> | undefined;
+  let warnedFor = $state<string | null>(null);
+
+  const holdUntilMs = $derived(status?.state.holdUntil ? new Date(status.state.holdUntil).getTime() : null);
+  const holdRemainingMs = $derived(holdUntilMs === null ? null : holdUntilMs - (nowMs + clockOffsetMs));
+  const holdActive = $derived(holdRemainingMs !== null && holdRemainingMs > 0);
+  const holdExpiring = $derived(holdActive && holdRemainingMs! <= WARN_AT_MS);
+
+  function formatRemaining(ms: number) {
+    const total = Math.max(0, Math.round(ms / 1000));
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  // Browser notification rather than an in-page toast: the whole point is to
+  // reach someone who has this tab in the background. Fires once per hold —
+  // keyed on the deadline, so a renew arms a fresh warning but a poll every 5s
+  // does not re-notify.
+  $effect(() => {
+    if (!holdExpiring || !status?.state.holdUntil) {
+      return;
+    }
+    const key = status.state.holdUntil;
+    if (warnedFor === key) {
+      return;
+    }
+    warnedFor = key;
+    notifyExpiring(Math.round((holdRemainingMs ?? 0) / 60_000));
+  });
+
+  function notifyExpiring(minutesLeft: number) {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
+      return;
+    }
+    new Notification('GPU worker is about to shut down', {
+      body: `The idle-shutdown hold expires in about ${Math.max(1, minutesLeft)} minute(s). Renew it if the box should stay up.`,
+      icon: '/icon-192.png',
+      tag: 'gpu-hold-expiring',
+    });
+  }
+
+  async function enableNotifications() {
+    if (typeof Notification === 'undefined') {
+      error = 'This browser does not support notifications.';
+      return;
+    }
+    await Notification.requestPermission();
+    // Read back rather than trusting the return value — Safari resolves the
+    // promise before the user has actually answered the prompt.
+    notificationsAllowed = Notification.permission === 'granted';
+  }
+
+  let notificationsAllowed = $state(false);
+
   async function refresh() {
     status = await api.admin.gpu();
+    // Signed offset between the API's clock and ours. Recomputed every poll so
+    // it tracks drift rather than being fixed at page load.
+    clockOffsetMs = new Date(status.serverNow).getTime() - Date.now();
     form ??= { ...status.config };
     loading = false;
   }
@@ -58,8 +130,13 @@
   onMount(() => {
     void refresh();
     timer = setInterval(() => void refresh(), 5000);
+    tickTimer = setInterval(() => (nowMs = Date.now()), 1000);
+    notificationsAllowed = typeof Notification !== 'undefined' && Notification.permission === 'granted';
   });
-  onDestroy(() => timer && clearInterval(timer));
+  onDestroy(() => {
+    if (timer) clearInterval(timer);
+    if (tickTimer) clearInterval(tickTimer);
+  });
 </script>
 
 <svelte:head><title>GPU worker — EventLens</title></svelte:head>
@@ -110,6 +187,33 @@
         >
           {status.pending > 0 ? `Process all (${status.pending})` : 'Start now'}
         </Button>
+        <!-- Pauses the idle timer only; it never starts the box. "Do not shut
+             down" and "turn on" are different requests, and the second costs
+             money. Renew is absolute — pressing it twice is still one hour from
+             now, not two. -->
+        <Button
+          variant={holdActive ? 'filled' : 'outline'}
+          color={holdExpiring ? 'warning' : 'primary'}
+          disabled={busy}
+          onclick={() => run(() => api.admin.holdGpu(HOLD_MINUTES))}
+          title={holdActive
+            ? 'Extend the hold to a fresh hour from now'
+            : 'Keep the box up for an hour regardless of idle time'}
+        >
+          {holdActive ? `Renew 1 hour (${formatRemaining(holdRemainingMs!)})` : 'Pause idle shutdown'}
+        </Button>
+
+        {#if holdActive}
+          <Button
+            variant="outline"
+            disabled={busy}
+            onclick={() => run(() => api.admin.clearGpuHold())}
+            title="Drop the hold and let the configured idle shutdown apply again"
+          >
+            Reset idle pausing
+          </Button>
+        {/if}
+
         <Button
           variant="outline"
           color="danger"
@@ -119,6 +223,37 @@
           Stop now
         </Button>
       </div>
+
+      {#if holdActive}
+        <!-- Full width under the buttons: the deadline is the thing an operator
+             is actually tracking, and it should not be readable only by
+             squinting at a button label. -->
+        <div
+          class="mt-4 w-full rounded-2xl px-4 py-3 text-sm {holdExpiring
+            ? 'bg-amber-500/10 text-amber-600'
+            : 'bg-primary/10 text-primary'}"
+        >
+          <p class="font-medium">
+            Idle shutdown paused — {formatRemaining(holdRemainingMs!)} remaining
+          </p>
+          <p class="mt-0.5 opacity-80">
+            {#if holdExpiring}
+              The box will shut down when this runs out. Renew if it should stay up.
+            {:else}
+              The box will not stop until this expires, even when the queues are empty.
+            {/if}
+          </p>
+          {#if !notificationsAllowed}
+            <button
+              type="button"
+              class="mt-2 underline underline-offset-2"
+              onclick={() => void enableNotifications()}
+            >
+              Enable browser notifications to be warned before it expires
+            </button>
+          {/if}
+        </div>
+      {/if}
     </div>
 
     <dl class="mt-5 grid grid-cols-2 gap-x-6 gap-y-2 text-sm md:grid-cols-4">

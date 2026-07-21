@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { AuditFlushDto, AuditQueryDto, EventRetentionDto, GpuAutostartDto } from 'src/dtos/admin.dto';
+import { AuditFlushDto, AuditQueryDto, EventRetentionDto, GpuAutostartDto, GpuHoldDto } from 'src/dtos/admin.dto';
 import { AuthDto } from 'src/dtos/auth.dto';
 import { CreateOrgDto, UpdateOrgDto } from 'src/dtos/org.dto';
 import { Auth, Authenticated } from 'src/middleware/auth.guard';
@@ -99,6 +99,20 @@ export class AdminController {
   @Authenticated({ superAdmin: true })
   startGpu(@Auth() auth: AuthDto) {
     return this.gpuLifecycleService.startNow(`manual start by ${auth.user!.email}`);
+  }
+
+  // Pause the idle-shutdown timer. Does not start the box — "do not shut down"
+  // is a different request from "turn on", and turning on costs money.
+  @Post('gpu/hold')
+  @Authenticated({ superAdmin: true })
+  holdGpu(@Auth() auth: AuthDto, @Body() dto: GpuHoldDto) {
+    return this.gpuLifecycleService.holdIdle(dto.minutes, auth.user!.id);
+  }
+
+  @Delete('gpu/hold')
+  @Authenticated({ superAdmin: true })
+  clearGpuHold(@Auth() auth: AuthDto) {
+    return this.gpuLifecycleService.clearHold(auth.user!.id);
   }
 
   @Post('gpu/stop')

@@ -17,6 +17,15 @@ export class AuditQueryDto extends createZodDto(
   }),
 ) {}
 
+// Upper bound of 12h rather than unbounded: this pauses the one safeguard that
+// stops a per-second GPU bill, so "hold forever" should require deliberately
+// disabling autostart, not one click on a busy admin page.
+export class GpuHoldDto extends createZodDto(
+  z.object({
+    minutes: z.coerce.number().int().min(1).max(720).default(60),
+  }),
+) {}
+
 // Omitting `retention` clears the whole table, never-delete rows included.
 // That is the only way those are ever removed, so it is deliberately explicit
 // rather than a default.

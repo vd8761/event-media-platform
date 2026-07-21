@@ -389,6 +389,9 @@ export interface GpuStatusResponse {
   queues: GpuQueueSummary[];
   pending: number;
   workerOnline: boolean;
+  // The API's clock. The hold countdown is computed against this rather than
+  // the browser's, so a skewed local clock cannot show a wrong remaining time.
+  serverNow: string;
   oldestPendingAgeSeconds: number | null;
   // Why the box is or is not running, so the panel never leaves an operator
   // guessing at the thresholds.
@@ -575,6 +578,9 @@ export const api = {
     flushAudit: (retention?: string) => post<{ removed: number }>('/admin/audit/flush', { retention }),
 
     startGpu: () => post<GpuLifecycleState>('/admin/gpu/start', {}),
+    // Pause the idle-shutdown timer for a window. Does not start the box.
+    holdGpu: (minutes = 60) => post<GpuLifecycleState>('/admin/gpu/hold', { minutes }),
+    clearGpuHold: () => del<GpuLifecycleState>('/admin/gpu/hold'),
     stopGpu: () => post<GpuLifecycleState>('/admin/gpu/stop', {}),
     // --- support inbox ---
     supportTickets: (status?: 'open' | 'resolved') =>
