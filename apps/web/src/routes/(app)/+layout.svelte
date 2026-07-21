@@ -3,7 +3,9 @@
   import { api } from '$lib/api';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import TopBar from '$lib/components/TopBar.svelte';
+  import UploadPanel from '$lib/components/UploadPanel.svelte';
   import { shellStore } from '$lib/shell.svelte';
+  import { uploadStore } from '$lib/uploads.svelte';
 
   let { data, children } = $props();
 
@@ -20,6 +22,15 @@
   $effect(() => {
     void shellStore.load(activeOrgId);
   });
+
+  // The queue survives client-side navigation on its own — it lives outside
+  // every component. A real page unload is the one thing that still kills it,
+  // so that is the only case worth interrupting the user for.
+  function guardUnload(event: BeforeUnloadEvent) {
+    if (uploadStore.hasActive) {
+      event.preventDefault();
+    }
+  }
 
   async function logout() {
     await api.logout().catch(() => undefined);
@@ -62,3 +73,9 @@
     </main>
   </div>
 </div>
+
+<!-- Rendered from the layout, not from the event page: uploads continue across
+     navigation, so the panel has to outlive the route that started them. -->
+<UploadPanel uploads={uploadStore.items} onDismiss={() => uploadStore.dismiss()} />
+
+<svelte:window onbeforeunload={guardUnload} />

@@ -96,12 +96,19 @@
       </div>
 
       <div class="flex flex-wrap gap-2">
+        <!-- Startable with an empty queue on purpose: warming the box before
+             an event begins, or bringing it up to debug it, are both reasons to
+             start it that have nothing to do with current queue depth. It holds
+             for one idle window either way, so a manual start is not undone by
+             the next sweep. -->
         <Button
-          disabled={busy || status.pending === 0}
+          disabled={busy || status.state.state === 'running' || status.state.state === 'starting'}
           onclick={() => run(() => api.admin.startGpu())}
-          title={status.pending === 0 ? 'Nothing is queued' : 'Start the GPU box and work through the queue'}
+          title={status.pending === 0
+            ? 'Start the GPU box now — nothing is queued yet'
+            : 'Start the GPU box and work through the queue'}
         >
-          Process all ({status.pending})
+          {status.pending > 0 ? `Process all (${status.pending})` : 'Start now'}
         </Button>
         <Button
           variant="outline"

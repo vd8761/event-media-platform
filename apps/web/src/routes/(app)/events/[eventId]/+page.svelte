@@ -1,12 +1,12 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, downloadSelectionZip, sha1Hex, uploadAsset, type AssetItem, type ProcessingStatus } from '$lib/api';
+  import { api, downloadSelectionZip, uploadAsset, type AssetItem, type ProcessingStatus } from '$lib/api';
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
   import PhotoViewer from '$lib/components/PhotoViewer.svelte';
   import Scrubber from '$lib/components/Scrubber.svelte';
-  import UploadPanel, { type UploadItem } from '$lib/components/UploadPanel.svelte';
   import ProcessingBar from '$lib/components/ProcessingBar.svelte';
+  import { uploadStore } from '$lib/uploads.svelte';
   import SelectionBar from '$lib/components/SelectionBar.svelte';
   import { Button, Icon, IconButton, LoadingSpinner } from '@immich/ui';
   import {
@@ -45,22 +45,9 @@
   let downloadingZip = $state(false);
 
   // --- uploads ---
-  // Items live in this $state array and are only ever mutated *through it*.
-  // Holding a reference to the original object and mutating that instead is
-  // the classic Svelte 5 trap: the proxy keeps serving the stale value, so the
-  // progress bar freezes even though the upload is running fine.
-  // Rendering is UploadPanel's job (a port of Immich's).
-  const UPLOAD_CONCURRENCY = 3;
-  let uploads = $state<UploadItem[]>([]);
-  let nextUploadId = 0;
-  let dismissTimer: ReturnType<typeof setTimeout> | undefined;
-
-  function patchUpload(id: number, changes: Partial<UploadItem>) {
-    const index = uploads.findIndex((upload) => upload.id === id);
-    if (index !== -1) {
-      Object.assign(uploads[index], changes);
-    }
-  }
+  // The queue itself lives in `uploadStore` at module scope so it survives
+  // navigating away from this page; the panel is rendered by the app layout.
+  // This page only starts batches and adopts the finished assets.
 
   let pollTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -73,6 +60,10 @@
     nextCursor = first.nextCursor;
     processing = status;
     loading = false;
+    // A file may have finished uploading while this request was in flight; the
+    // server list would not have it yet, and dropping it here would make the
+    // tile vanish and reappear.
+    adoptFresh();
     schedulePolling();
   }
 
@@ -101,26 +92,6 @@
     nextCursor = next.nextCursor;
   }
 
-  async function uploadOne(item: UploadItem, file: File) {
-    try {
-      patchUpload(item.id, { state: 'hashing' });
-
-      // SHA-1 preflight — known duplicates are never sent (docs/plan/04 §3)
-      const checksum = await sha1Hex(file);
-      const { results } = await api.assets.bulkUploadCheck(eventId, [{ id: file.name, checksum }]);
-      if (results[0]?.action === 'reject') {
-        patchUpload(item.id, { state: 'duplicate' });
-        return;
-      }
-
-      patchUpload(item.id, { state: 'uploading', progress: 0 });
-      const result = await uploadAsset(eventId, file, (percent) => patchUpload(item.id, { progress: percent }));
-      patchUpload(item.id, { state: result.status === 'duplicate' ? 'duplicate' : 'done', progress: 100 });
-    } catch (error) {
-      patchUpload(item.id, { state: 'error', error: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
   async function onFilesPicked(list: FileList | null) {
     if (!list || list.length === 0) {
       return;
@@ -129,38 +100,43 @@
     if (fileInput) {
       fileInput.value = '';
     }
-    if (dismissTimer) {
-      clearTimeout(dismissTimer);
-      dismissTimer = undefined;
+
+    // Not awaited before adopting: `enqueue` only settles once the whole batch
+    // is done, and each file should appear as it lands rather than all at the
+    // end. `adoptFresh` on the existing poll picks them up one by one.
+    void uploadStore.enqueue(eventId, files).then(() => refresh());
+  }
+
+  // Splice in anything the store has finished uploading for this event. Called
+  // from the poll, so a photo shows up seconds after it uploads instead of
+  // waiting on derivative generation and face detection.
+  function adoptFresh() {
+    const fresh = uploadStore.takeFresh(eventId);
+    if (fresh.length === 0) {
+      return;
     }
-
-    const items: UploadItem[] = files.map((file) => ({
-      id: nextUploadId++,
-      name: file.name,
-      state: 'pending',
-      progress: 0,
-    }));
-    uploads = [...items, ...uploads];
-
-    // Small worker pool: a long single-file queue is what made this look
-    // frozen when someone dropped in a whole camera roll.
-    let cursor = 0;
-    const worker = async () => {
-      while (cursor < files.length) {
-        const current = cursor++;
-        await uploadOne(items[current], files[current]);
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, files.length) }, worker));
-
-    await refresh();
-
-    // Clean runs disappear on their own; anything with a duplicate or a
-    // failure stays up so it can actually be read.
-    if (uploads.every((upload) => upload.state === 'done')) {
-      dismissTimer = setTimeout(() => (uploads = []), 4000);
+    // Guard against a refresh having already returned them — the server list
+    // is authoritative, and a duplicate row would render as a duplicate photo.
+    const known = new Set(assets.map((asset) => asset.id));
+    const additions = fresh.filter((asset) => !known.has(asset.id));
+    if (additions.length > 0) {
+      assets = [...additions, ...assets];
     }
   }
+
+  // While a batch is running, splice each finished upload in promptly rather
+  // than waiting on the 4s pipeline poll — showing the photo the moment it
+  // lands is the whole point, and derivative generation is much slower.
+  $effect(() => {
+    if (!uploadStore.hasActive) {
+      return;
+    }
+    const timer = setInterval(() => {
+      adoptFresh();
+      schedulePolling();
+    }, 1000);
+    return () => clearInterval(timer);
+  });
 
   function clearSelection() {
     selected = new Set();
@@ -228,9 +204,6 @@
     if (pollTimer) {
       clearInterval(pollTimer);
     }
-    if (dismissTimer) {
-      clearTimeout(dismissTimer);
-    }
   });
 </script>
 
@@ -293,8 +266,6 @@
 
   <Scrubber timelineElement={timelineEl} revision={assets.length} />
 {/if}
-
-<UploadPanel {uploads} onDismiss={() => (uploads = [])} />
 
 {#if viewerIndex >= 0 && assets[viewerIndex]}
   <PhotoViewer
