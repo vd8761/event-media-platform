@@ -368,6 +368,9 @@ export interface GpuAutostartConfig {
 }
 
 export interface GpuLifecycleState {
+  // When the queues last went empty while running; the idle countdown runs
+  // from here rather than from when the box started.
+  idleSince?: string | null;
   state: 'off' | 'starting' | 'running' | 'stopping';
   since: string;
   holdUntil: string | null;
@@ -419,6 +422,9 @@ export interface GpuStatusResponse {
   // Why the box is or is not running, so the panel never leaves an operator
   // guessing at the thresholds.
   trigger: { shouldStart: boolean; reason: string };
+  // Plain-language "what happens next", computed server-side from the same
+  // rules the sweep decides with, so the panel cannot drift from behaviour.
+  nextAction: { kind: 'start' | 'stop' | 'waiting' | 'none'; message: string; etaSeconds: number | null };
   // Whether the selected provider is actually usable from the API host.
   providerReady: boolean;
 }

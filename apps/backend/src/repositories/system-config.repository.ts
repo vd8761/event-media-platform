@@ -100,6 +100,11 @@ export interface GpuLifecycleState {
   // the queues look briefly empty, so a manual run is never cut short by a lull
   // between jobs.
   holdUntil: string | null;
+  // When the queues last went empty while running. The idle countdown is
+  // measured from here, not from `since` — `since` is when the box started, so
+  // measuring from it means a box that worked for longer than the idle window
+  // gets no grace at all and stops the instant its queues drain.
+  idleSince: string | null;
   lastStartedAt: string | null;
   lastStoppedAt: string | null;
   lastError: string | null;
@@ -114,6 +119,7 @@ export const GPU_LIFECYCLE_INITIAL: GpuLifecycleState = {
   state: 'off',
   since: new Date(0).toISOString(),
   holdUntil: null,
+  idleSince: null,
   lastStartedAt: null,
   lastStoppedAt: null,
   lastError: null,

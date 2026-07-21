@@ -119,6 +119,10 @@ export class GpuLifecycleService {
       // than something an operator discovers on an invoice.
       instance,
       oldestPendingAgeSeconds: oldestAges.length > 0 ? Math.max(...oldestAges) : null,
+      // What will happen next, in the same terms the sweep decides in. Computed
+      // here rather than in the panel so the two cannot drift: a status line
+      // that disagrees with the actual rules is worse than none.
+      nextAction: this.predictNextAction(config, state, queues, pending),
       // Surfaced so the panel can explain *why* the box is or isn't running
       // rather than leaving an operator guessing at the thresholds.
       trigger: this.evaluateTrigger(config, queues, pending),
@@ -195,6 +199,70 @@ export class GpuLifecycleService {
         };
       }),
     );
+  }
+
+  // Plain-language "what happens next", with an ETA where one exists.
+  private predictNextAction(
+    config: GpuAutostartConfig,
+    state: GpuLifecycleState,
+    queues: GpuQueueSummary[],
+    pending: number,
+  ): { kind: 'start' | 'stop' | 'waiting' | 'none'; message: string; etaSeconds: number | null } {
+    if (!config.enabled) {
+      return { kind: 'none', message: 'Autostart is off — the box only starts and stops by hand.', etaSeconds: null };
+    }
+
+    if (state.state === 'off') {
+      if (pending === 0) {
+        return { kind: 'none', message: 'Nothing queued. The box stays off until work arrives.', etaSeconds: null };
+      }
+
+      const shortfall = config.pendingThreshold - pending;
+      const oldest = queues
+        .map((queue) => queue.oldestWaitingAgeSeconds)
+        .filter((age): age is number => age !== null)
+        .reduce((max, age) => Math.max(max, age), 0);
+      const untilAgeRule = config.maxPendingAgeMinutes * 60 - oldest;
+
+      if (shortfall <= 0 || untilAgeRule <= 0) {
+        return { kind: 'start', message: 'Starting on the next sweep.', etaSeconds: 0 };
+      }
+
+      // Both routes are live; the age rule is the one with a deadline, so it is
+      // what an operator can actually plan around.
+      return {
+        kind: 'waiting',
+        message: `Waiting — starts at ${config.pendingThreshold} queued jobs (${shortfall} more) or once the oldest has waited ${config.maxPendingAgeMinutes}m.`,
+        etaSeconds: untilAgeRule,
+      };
+    }
+
+    if (state.state === 'running') {
+      if (state.holdUntil && new Date(state.holdUntil).getTime() > Date.now()) {
+        return {
+          kind: 'none',
+          message: 'Idle shutdown is paused — the box stays up until the hold expires.',
+          etaSeconds: Math.round((new Date(state.holdUntil).getTime() - Date.now()) / 1000),
+        };
+      }
+      if (pending > 0) {
+        return { kind: 'none', message: `Working through ${pending} job(s).`, etaSeconds: null };
+      }
+
+      const idleFor = state.idleSince ? Date.now() - new Date(state.idleSince).getTime() : 0;
+      const remaining = Math.max(0, config.idleShutdownMinutes * 60_000 - idleFor);
+      return {
+        kind: 'stop',
+        message: 'Queues are empty — stopping once the idle window elapses.',
+        etaSeconds: Math.round(remaining / 1000),
+      };
+    }
+
+    if (state.state === 'starting') {
+      return { kind: 'none', message: 'Booting — waiting for the worker to report in.', etaSeconds: null };
+    }
+
+    return { kind: 'none', message: 'Shutting down.', etaSeconds: null };
   }
 
   // --- manual control ---
@@ -368,7 +436,7 @@ export class GpuLifecycleService {
       const actual = await this.getProviderState(config, state);
       if (actual === 'running') {
         const adoptedAt = new Date().toISOString();
-        await this.setState({ ...state, state: 'starting', since: adoptedAt, lastStartedAt: adoptedAt });
+        await this.setState({ ...state, state: 'starting', since: adoptedAt, lastStartedAt: adoptedAt, idleSince: null });
         await this.auditLogService.record({
           category: AuditCategory.Gpu,
           action: 'gpu.state.reconciled',
@@ -385,7 +453,7 @@ export class GpuLifecycleService {
     // Reconcile first: the heartbeat is the source of truth about whether the
     // box is actually up, not what we last wrote down.
     if (state.state === 'starting' && workerOnline) {
-      await this.setState({ ...state, state: 'running', since: new Date().toISOString(), lastError: null });
+      await this.setState({ ...state, state: 'running', since: new Date().toISOString(), lastError: null, idleSince: null });
       this.logger.log('GPU worker reported in — now running');
       await this.auditLogService.record({
         category: AuditCategory.Gpu,
@@ -453,12 +521,31 @@ export class GpuLifecycleService {
       return JobStatus.Success;
     }
 
-    if (state.state === 'running' && pending === 0 && active === 0) {
+    if (state.state === 'running') {
       // `active` here is liveActive-derived, so an orphaned job no longer keeps
       // this branch from ever being reached.
+      const idle = pending === 0 && active === 0;
+
+      if (!idle) {
+        // Work arrived: restart the countdown. Without this the box would carry
+        // an idle timestamp from an earlier lull and stop mid-batch.
+        if (state.idleSince) {
+          await this.setState({ ...state, idleSince: null });
+        }
+        return JobStatus.Success;
+      }
+
+      // First sweep since the queues drained — start the clock rather than
+      // measuring from `since`, which is when the box *started* and would give
+      // a long-running box no grace period at all.
+      if (!state.idleSince) {
+        await this.setState({ ...state, idleSince: new Date(now).toISOString() });
+        return JobStatus.Success;
+      }
+
       const holding = state.holdUntil && new Date(state.holdUntil).getTime() > now;
-      const idleFor = now - new Date(state.since).getTime();
-      if (!holding && idleFor > config.idleShutdownMinutes * 60_000) {
+      const idleFor = now - new Date(state.idleSince).getTime();
+      if (!holding && idleFor >= config.idleShutdownMinutes * 60_000) {
         await this.stop(config, `idle for ${Math.round(idleFor / 60_000)}m`);
       }
     }
@@ -632,6 +719,9 @@ export class GpuLifecycleService {
       since: now,
       lastStartedAt: now,
       lastError: null,
+      // A countdown left over from the previous run must not stop the box the
+      // moment it comes back up.
+      idleSince: null,
       holdUntil: manual ? new Date(Date.now() + config.idleShutdownMinutes * 60_000).toISOString() : state.holdUntil,
     };
     await this.setState(pendingState);
@@ -731,7 +821,7 @@ export class GpuLifecycleService {
   private async stop(config: GpuAutostartConfig, reason: string): Promise<GpuLifecycleState> {
     const state = await this.systemConfigRepository.getGpuLifecycleState();
     const now = new Date().toISOString();
-    const stopping: GpuLifecycleState = { ...state, state: 'stopping', since: now, holdUntil: null, lastError: null };
+    const stopping: GpuLifecycleState = { ...state, state: 'stopping', since: now, holdUntil: null, idleSince: null, lastError: null };
     await this.setState(stopping);
 
     this.logger.log(`Stopping GPU worker (${reason})`);

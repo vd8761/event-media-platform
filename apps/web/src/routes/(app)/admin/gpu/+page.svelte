@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, type GpuStatusResponse } from '$lib/api';
-  import { Badge, Button, Heading, LoadingSpinner } from '@immich/ui';
+  import { Badge, Button, Heading, Icon, LoadingSpinner } from '@immich/ui';
+  import { mdiInformationOutline, mdiPlay, mdiPower } from '@mdi/js';
   import { onDestroy, onMount } from 'svelte';
 
   let status = $state<GpuStatusResponse | null>(null);
@@ -273,6 +274,30 @@
       {/if}
     </div>
 
+    <!-- What happens next, in plain terms. The panel used to state the raw
+         thresholds and leave an operator to work out that two queued photos
+         meant a two-hour wait; this says so directly. -->
+    <div
+      class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl px-4 py-2.5 text-sm {status.nextAction.kind === 'start'
+        ? 'bg-primary/10 text-primary'
+        : status.nextAction.kind === 'stop'
+          ? 'bg-amber-500/10 text-amber-600'
+          : 'bg-subtle text-gray-600'}"
+    >
+      <Icon
+        icon={status.nextAction.kind === 'start'
+          ? mdiPlay
+          : status.nextAction.kind === 'stop'
+            ? mdiPower
+            : mdiInformationOutline}
+        size="1.1rem"
+      />
+      <span>{status.nextAction.message}</span>
+      {#if status.nextAction.etaSeconds !== null && status.nextAction.etaSeconds > 0}
+        <span class="font-medium">· {formatAge(status.nextAction.etaSeconds)}</span>
+      {/if}
+    </div>
+
     {#if status.instance}
       {@const live = status.instance}
       {@const providerRunning = (live.status ?? '').toLowerCase() === 'running'}
@@ -294,8 +319,13 @@
 
         <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm md:grid-cols-3 lg:grid-cols-6">
           <div>
-            <dt class="text-gray-600">Cost so far</dt>
-            <dd class="md-title-medium">{live.costSoFar === undefined ? '—' : `$${live.costSoFar.toFixed(2)}`}</dd>
+            <dt class="text-gray-600">Cost</dt>
+            <!-- Reported verbatim by the provider. Its scope is not documented
+                 — the figures do not line up with this session alone — so it is
+                 not labelled as something it might not be. -->
+            <dd class="md-title-medium" title="As reported by JarvisLabs">
+              {live.costSoFar === undefined ? '—' : live.costSoFar.toFixed(2)}
+            </dd>
           </div>
           <div><dt class="text-gray-600">Runtime</dt><dd class="md-title-medium">{live.runtime ?? '—'}</dd></div>
           <div><dt class="text-gray-600">Billing</dt><dd class="md-title-medium">{live.billingFrequency ?? '—'}</dd></div>
