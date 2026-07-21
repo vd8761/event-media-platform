@@ -401,6 +401,20 @@ export interface GpuStatusResponse {
   // The API's clock. The hold countdown is computed against this rather than
   // the browser's, so a skewed local clock cannot show a wrong remaining time.
   serverNow: string;
+  // Live from the provider, discovered rather than configured. Null when the
+  // CLI is unavailable or no instance could be identified.
+  instance: {
+    machineId: string;
+    name?: string;
+    status?: string;
+    gpuType?: string;
+    costSoFar?: number;
+    runtime?: string;
+    region?: string;
+    publicIp?: string;
+    billingFrequency?: string;
+    numGpus?: number;
+  } | null;
   oldestPendingAgeSeconds: number | null;
   // Why the box is or is not running, so the panel never leaves an operator
   // guessing at the thresholds.

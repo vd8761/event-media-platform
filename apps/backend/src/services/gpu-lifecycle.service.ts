@@ -15,7 +15,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { OnJob } from 'src/decorators';
 import { AuditCategory, AuditLevel, JobName, JobStatus, QueueName } from 'src/enum';
-import { JarvisLabsRepository } from 'src/repositories/jarvislabs.repository';
+import { JarvisLabsInstance, JarvisLabsRepository } from 'src/repositories/jarvislabs.repository';
 import { AuditLogService } from 'src/services/audit-log.service';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
@@ -47,6 +47,12 @@ const STUCK_ACTIVE_AFTER_MS = 30 * 60_000;
 // believe it is off.
 const PROVIDER_CHECK_INTERVAL_MS = 10 * 60_000;
 
+// The admin panel polls every 5s, but `jl` is a subprocess — spawning one per
+// poll would be absurd. The instance's own figures (cost, runtime, status)
+// change on the order of minutes, so a short cache keeps the panel live without
+// hammering the CLI.
+const INSTANCE_CACHE_MS = 20_000;
+
 // Every queue the GPU box is responsible for.
 const GPU_QUEUES = Object.values(QueueName).filter((queue) => QUEUE_ROLES[queue] === WorkerRole.Media);
 
@@ -68,6 +74,7 @@ export interface GpuQueueSummary {
 @Injectable()
 export class GpuLifecycleService {
   private lastProviderCheckAt = 0;
+  private instanceCache: { at: number; instance: JarvisLabsInstance | null } | null = null;
 
   constructor(
     private auditLogService: AuditLogService,
@@ -83,11 +90,12 @@ export class GpuLifecycleService {
   // --- read model (admin panel) ---
 
   async getStatus() {
-    const [config, state, queues, workerOnline] = await Promise.all([
+    const [config, state, queues, workerOnline, instance] = await Promise.all([
       this.systemConfigRepository.getGpuAutostartConfig(),
       this.systemConfigRepository.getGpuLifecycleState(),
       this.getQueueSummary(),
       this.isWorkerOnline(),
+      this.getInstance(),
     ]);
 
     const pending = queues.reduce((sum, queue) => sum + queue.waiting + queue.liveActive + queue.delayed, 0);
@@ -105,6 +113,11 @@ export class GpuLifecycleService {
       // it compute an offset once and tick locally, so a browser whose clock is
       // minutes out does not show a wrong — or negative — remaining time.
       serverNow: new Date().toISOString(),
+      // What the provider says, as opposed to what we recorded. The panel shows
+      // this alongside our own state: the two disagreeing ("off" while the
+      // machine runs) is the expensive case, and it should be visible rather
+      // than something an operator discovers on an invoice.
+      instance,
       oldestPendingAgeSeconds: oldestAges.length > 0 ? Math.max(...oldestAges) : null,
       // Surfaced so the panel can explain *why* the box is or isn't running
       // rather than leaving an operator guessing at the thresholds.
@@ -135,7 +148,7 @@ export class GpuLifecycleService {
       return { ok: false, detail: 'JL_API_KEY is not set on the API host' };
     }
     const state = await this.systemConfigRepository.getGpuLifecycleState();
-    const target = state.machineId || config.jarvislabsMachineId;
+    const target = await this.resolveMachineId(config, state);
     if (!target) {
       return { ok: false, detail: 'No JarvisLabs instance id is configured' };
     }
@@ -453,6 +466,55 @@ export class GpuLifecycleService {
     return JobStatus.Success;
   }
 
+  // The live instance, discovered rather than configured.
+  //
+  // The instance id used to be typed in by hand, but `jl resume` reassigns it on
+  // every resume — it changed four times in a single afternoon of testing — so a
+  // configured id is stale almost as soon as it is saved, and a stale id means
+  // "stop" pauses a machine that no longer exists while the real one bills on.
+  // Listing is authoritative and needs no maintenance.
+  //
+  // With several instances the configured id still decides, since only the
+  // operator knows which one is EventLens'.
+  async getInstance(): Promise<JarvisLabsInstance | null> {
+    if (this.instanceCache && Date.now() - this.instanceCache.at < INSTANCE_CACHE_MS) {
+      return this.instanceCache.instance;
+    }
+    if (!this.jarvisLabsRepository.isConfigured()) {
+      return null;
+    }
+
+    try {
+      const config = await this.systemConfigRepository.getGpuAutostartConfig();
+      const instances = await this.jarvisLabsRepository.list();
+      const configured = config.jarvislabsMachineId;
+
+      const instance =
+        (configured ? instances.find((row) => row.machineId === configured) : undefined) ??
+        (instances.length === 1 ? instances[0] : null);
+
+      this.instanceCache = { at: Date.now(), instance };
+      return instance;
+    } catch (error) {
+      this.logger.warn(`Could not list JarvisLabs instances: ${error}`);
+      // Cached as a miss so a broken CLI does not retry on every poll.
+      this.instanceCache = { at: Date.now(), instance: null };
+      return null;
+    }
+  }
+
+  // Which machine to act on.
+  //
+  // The live listing wins over anything recorded: `jl resume` reassigns ids, so
+  // both the configured value and the one in our state go stale, and acting on a
+  // stale id pauses a machine that no longer exists while the real one keeps
+  // billing. Falls back to the recorded ids when the CLI cannot be reached, so a
+  // provider outage does not make the box uncontrollable.
+  private async resolveMachineId(config: GpuAutostartConfig, state: GpuLifecycleState): Promise<string> {
+    const live = await this.getInstance();
+    return live?.machineId || state.machineId || config.jarvislabsMachineId;
+  }
+
   // --- internals ---
 
   // What the provider says the machine is doing, as opposed to what we last
@@ -479,7 +541,7 @@ export class GpuLifecycleService {
       return null;
     }
     this.lastProviderCheckAt = now;
-    const target = state.machineId || config.jarvislabsMachineId;
+    const target = await this.resolveMachineId(config, state);
     if (!target) {
       return null;
     }
@@ -583,7 +645,7 @@ export class GpuLifecycleService {
     });
 
     if (config.provider === 'jarvislabs') {
-      const target = state.machineId || config.jarvislabsMachineId;
+      const target = await this.resolveMachineId(config, state);
       if (!target) {
         const failed: GpuLifecycleState = { ...pendingState, state: 'off', lastError: 'no JarvisLabs instance id' };
         await this.setState(failed);
@@ -681,7 +743,7 @@ export class GpuLifecycleService {
     });
 
     if (config.provider === 'jarvislabs') {
-      const target = state.machineId || config.jarvislabsMachineId;
+      const target = await this.resolveMachineId(config, state);
       if (!target) {
         const failed: GpuLifecycleState = { ...stopping, lastError: 'no JarvisLabs instance id' };
         await this.setState(failed);

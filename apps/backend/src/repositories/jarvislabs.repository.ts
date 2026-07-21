@@ -36,6 +36,14 @@ export interface JarvisLabsInstance {
   name?: string;
   status?: string;
   gpuType?: string;
+  // Surfaced on the admin panel so an operator can see what the machine is
+  // actually doing and what it has cost, rather than only what we recorded.
+  costSoFar?: number;
+  runtime?: string;
+  region?: string;
+  publicIp?: string;
+  billingFrequency?: string;
+  numGpus?: number;
 }
 
 export class JarvisLabsError extends Error {}
@@ -198,6 +206,12 @@ export class JarvisLabsRepository {
       name: typeof row.name === 'string' ? row.name : undefined,
       status: typeof row.status === 'string' ? row.status : undefined,
       gpuType: typeof row.gpu_type === 'string' ? row.gpu_type : undefined,
+      costSoFar: typeof row.cost === 'number' ? row.cost : undefined,
+      runtime: typeof row.runtime === 'string' ? row.runtime : undefined,
+      region: typeof row.region === 'string' ? row.region : undefined,
+      publicIp: typeof row.public_ip === 'string' ? row.public_ip : undefined,
+      billingFrequency: typeof row.billing_frequency === 'string' ? row.billing_frequency : undefined,
+      numGpus: typeof row.num_gpus === 'number' ? row.num_gpus : undefined,
     };
   }
 }

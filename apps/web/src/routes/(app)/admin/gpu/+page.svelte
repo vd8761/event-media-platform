@@ -127,15 +127,32 @@
     return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
   }
 
+  // Stops while the tab is hidden. Each refresh can reach the provider CLI, and
+  // a forgotten background tab would otherwise spawn subprocesses all day for
+  // a panel nobody is looking at.
+  function onVisibility() {
+    if (document.visibilityState === 'visible') {
+      void refresh();
+      timer ??= setInterval(() => void refresh(), 5000);
+    } else if (timer) {
+      clearInterval(timer);
+      timer = undefined;
+    }
+  }
+
   onMount(() => {
     void refresh();
     timer = setInterval(() => void refresh(), 5000);
+    document.addEventListener('visibilitychange', onVisibility);
     tickTimer = setInterval(() => (nowMs = Date.now()), 1000);
     notificationsAllowed = typeof Notification !== 'undefined' && Notification.permission === 'granted';
   });
   onDestroy(() => {
     if (timer) clearInterval(timer);
     if (tickTimer) clearInterval(tickTimer);
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibility);
+    }
   });
 </script>
 
@@ -256,6 +273,43 @@
       {/if}
     </div>
 
+    {#if status.instance}
+      {@const live = status.instance}
+      {@const providerRunning = (live.status ?? '').toLowerCase() === 'running'}
+      {@const recordedRunning = status.state.state === 'running' || status.state.state === 'starting'}
+      <div class="mt-5 rounded-2xl bg-subtle p-4">
+        <div class="mb-3 flex flex-wrap items-center gap-2">
+          <span class="md-title-small">{live.name ?? 'GPU instance'}</span>
+          <!-- The provider's own status, not ours. These disagreeing is the
+               expensive case — a machine running while we record it off is
+               never stopped — so it is called out rather than left for an
+               invoice to reveal. -->
+          <Badge color={providerRunning ? 'success' : 'secondary'} size="small">{live.status ?? 'unknown'}</Badge>
+          {#if providerRunning !== recordedRunning}
+            <span class="md-label-medium text-amber-600">
+              provider says {live.status} · we recorded {status.state.state} — reconciling shortly
+            </span>
+          {/if}
+        </div>
+
+        <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm md:grid-cols-3 lg:grid-cols-6">
+          <div>
+            <dt class="text-gray-600">Cost so far</dt>
+            <dd class="md-title-medium">{live.costSoFar === undefined ? '—' : `$${live.costSoFar.toFixed(2)}`}</dd>
+          </div>
+          <div><dt class="text-gray-600">Runtime</dt><dd class="md-title-medium">{live.runtime ?? '—'}</dd></div>
+          <div><dt class="text-gray-600">Billing</dt><dd class="md-title-medium">{live.billingFrequency ?? '—'}</dd></div>
+          <div><dt class="text-gray-600">Region</dt><dd class="md-title-medium">{live.region ?? '—'}</dd></div>
+          <div><dt class="text-gray-600">IP</dt><dd class="md-title-medium font-mono text-xs">{live.publicIp ?? '—'}</dd></div>
+          <div>
+            <dt class="text-gray-600">GPU</dt>
+            <dd class="md-title-medium">{live.numGpus ?? 1}× {live.gpuType ?? '—'}</dd>
+          </div>
+        </dl>
+        <p class="md-body-small mt-2 text-gray-500">Instance {live.machineId} · discovered from the provider</p>
+      </div>
+    {/if}
+
     <dl class="mt-5 grid grid-cols-2 gap-x-6 gap-y-2 text-sm md:grid-cols-4">
       <div><dt class="text-gray-600">Pending jobs</dt><dd class="md-title-medium">{status.pending}</dd></div>
       <div>
@@ -362,17 +416,6 @@
       {#if form.provider === 'jarvislabs'}
         <div class="mt-4 grid gap-4 md:grid-cols-2">
           <label class="block">
-            <span class="md-label-medium text-gray-600">Instance ID</span>
-            <input
-              bind:value={form.jarvislabsMachineId}
-              placeholder="12345"
-              class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2"
-            />
-            <span class="md-body-small text-gray-500">
-              From <code>jl list</code>. Resume can reassign this — the live ID is tracked automatically.
-            </span>
-          </label>
-          <label class="block">
             <span class="md-label-medium text-gray-600">Resume with GPU (optional)</span>
             <input
               bind:value={form.jarvislabsGpuType}
@@ -386,9 +429,8 @@
         </div>
         <p class="md-body-small mt-3 text-gray-500">
           Needs <code>JL_API_KEY</code> set on the API host; the <code>jl</code> CLI ships in the backend image.
-          {#if status.state.machineId && status.state.machineId !== form.jarvislabsMachineId}
-            <span class="text-amber-600">Currently controlling instance {status.state.machineId}.</span>
-          {/if}
+          The instance is discovered from <code>jl list</code> rather than configured — resume reassigns the id,
+          so a typed-in value goes stale and would target a machine that no longer exists.
         </p>
       {:else}
         <div class="mt-4 grid gap-4 md:grid-cols-2">
