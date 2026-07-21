@@ -171,7 +171,9 @@ docker compose -f docker-compose.gpu.yml up -d
 
 Migrations run automatically at first boot under a Postgres advisory lock; there is no separate migrate step. `docker-compose.gpu.yml` sets `DB_SKIP_MIGRATIONS` so the worker never races the API.
 
-**Second and later GPU VMs:** add `EL_QUEUES_EXCLUDE=facialRecognition`. Clustering must have exactly one consumer globally; every other queue load-balances automatically.
+**Second and later GPU VMs:** no extra env — just boot them. Clustering runs on the API host (it is database work, not GPU work), so GPU VMs load-balance freely.
+
+**Second and later API instances:** add `EL_QUEUES_EXCLUDE=facialRecognition`. Clustering must have exactly one consumer globally, or concurrent runs create duplicate persons for one face.
 
 ### Per-service guides
 

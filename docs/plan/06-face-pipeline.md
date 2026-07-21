@@ -45,7 +45,7 @@ Port of `PersonService.handleDetectFaces` (`immich:server/src/services/person.se
 
 **Scoping changes vs Immich (audit checklist):** asset lookup by `(eventId, assetId)`; no `ownerId` anywhere; no visibility/timeline gate (all event assets are eligible); `asset_job_status` replaced by `asset.status`.
 
-## 4. Stage B — Clustering (`facialRecognition` queue, concurrency 1, GPU worker)
+## 4. Stage B — Clustering (`facialRecognition` queue, concurrency 1, API host)
 
 Port of `PersonService.handleRecognizeFaces` (`immich:server/src/services/person.service.ts` ~line 459) — **the** clustering algorithm, kept intact:
 
@@ -73,7 +73,7 @@ Port of `PersonService.handleRecognizeFaces` (`immich:server/src/services/person
 4. **Core/deferred two-pass** (kept verbatim): a face is *core* when `matches.length >= minFaces`; non-core faces are re-queued once with `deferred: true` so they run after core faces have created persons.
 5. **Assignment**: adopt `person_id` from any matched neighbor that has one; else second KNN with `hasPerson: true, numResults: 1`; else — if core — **create a new `person`** (`event_id`, cover face) and enqueue `PersonThumbnail {personId}` + debounced `ParticipantRematch {eventId}`. Finally `reassignFaces([faceId], personId)`.
 
-**Why concurrency 1 is non-negotiable:** two concurrent recognitions of faces from the same unseen identity would each find no person and each create one → duplicate clusters. Immich pins this queue to the non-concurrent set (`immich:server/src/services/queue.service.ts`); with multiple GPU VMs the constraint must hold **globally** — every additional worker sets `EL_QUEUES_EXCLUDE=facialRecognition` ([01-architecture.md](01-architecture.md) §4).
+**Why concurrency 1 is non-negotiable:** two concurrent recognitions of faces from the same unseen identity would each find no person and each create one → duplicate clusters. Immich pins this queue to the non-concurrent set (`immich:server/src/services/queue.service.ts`); the constraint must hold **globally**. The queue runs on the API host (it is DB work, not GPU work), so this binds the API tier to one instance — extras set `EL_QUEUES_EXCLUDE=facialRecognition` ([01-architecture.md](01-architecture.md) §4).
 
 `FaceRecognizeQueueAll {eventId, force?}` (port of `handleQueueRecognizeFaces` ~line 401) is the admin "re-run clustering" entry point: waits for `faceDetection` to drain, on `force` unassigns ML faces, prewarms the vector index (`vchordrq_prewarm('face_index')`, `immich:server/src/repositories/database.repository.ts`), streams unassigned faces, enqueues each. A ported `handlePersonCleanup` deletes persons left with zero faces.
 

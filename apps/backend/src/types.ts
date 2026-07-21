@@ -59,7 +59,16 @@ export const QUEUE_ROLES: Record<QueueName, WorkerRole.Ingest | WorkerRole.Media
   [QueueName.MediaProcess]: WorkerRole.Media,
   [QueueName.VideoTranscode]: WorkerRole.Media,
   [QueueName.FaceDetection]: WorkerRole.Media,
-  [QueueName.FacialRecognition]: WorkerRole.Media,
+  // Ingest, not Media, despite the name: clustering never calls the ML sidecar.
+  // It is a pgvector KNN loop against the database, so running it on the GPU
+  // box meant every query crossed a region (Noida -> Singapore) at concurrency
+  // 1, holding the GPU at idle while a queue backed up behind it. On the API
+  // host it sits next to Neon. This also drops it from GPU_QUEUES, so a
+  // database-bound backlog no longer keeps a GPU billing.
+  //
+  // Still exactly one consumer fleet-wide (risk R1): the API service must stay
+  // at a single instance, or concurrent clustering creates duplicate persons.
+  [QueueName.FacialRecognition]: WorkerRole.Ingest,
   [QueueName.SmartSearch]: WorkerRole.Media,
   [QueueName.PersonThumbnail]: WorkerRole.Media,
   [QueueName.Selfie]: WorkerRole.Media,

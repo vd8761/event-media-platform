@@ -11,7 +11,7 @@ BullMQ on Redis (Valkey), Bull prefix **`el_bull`**, default job options per Imm
 | `mediaProcess` | `media` (GPU) | `AssetProcess {assetId}` | 3 | exif + preview + thumb + thumbhash (Immich `thumbnailGeneration` spec) |
 | `videoTranscode` | `media` (GPU) | `VideoTranscode {assetId}` | 1 | Immich default (`immich:server/src/config.ts` job defaults) |
 | `faceDetection` | `media` (GPU) | `FaceDetect {assetId}` | 2 | Immich default for `faceDetection` |
-| `facialRecognition` | `media` (GPU) | `FaceRecognize {faceId, deferred?}`, `FaceRecognizeQueueAll {eventId, force?}` | **1 — hard requirement, globally** | clustering races create duplicate persons; extra GPU VMs set `EL_QUEUES_EXCLUDE=facialRecognition` |
+| `facialRecognition` | `ingest` (API host) | `FaceRecognize {faceId, deferred?}`, `FaceRecognizeQueueAll {eventId, force?}` | **1 — hard requirement, globally** | clustering races create duplicate persons. Despite the name it makes no ML call — it is a pgvector KNN loop, so it belongs next to the database, not on the GPU box. Keep the API service at one instance |
 | `personThumbnail` | `media` (GPU) | `PersonThumbnail {personId}` | 2 | 250 px face crop |
 | `selfie` | `media` (GPU) | `SelfieProcess {participantId}` | 2 | needs the ML sidecar |
 | `import` | `ingest` (main) | `ImportFolder {importJobId}`, `ImportFile {importItemId}` | 1 folder / 4 file | network-bound (Drive/Graph) |

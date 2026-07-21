@@ -22,8 +22,10 @@ This is satisfied at the **deployment level with a single NestJS codebase**, whi
 | Role | Runs where | What starts |
 |---|---|---|
 | `api` | Main VM | Nest HTTP server (controllers, AuthGuard, upload interceptor). Enqueues jobs; never consumes. |
-| `ingest` | Main VM (same process as `api`) | BullMQ consumers for network/CPU-light queues: `import`, `match`, `notification`, `storageCleanup`, `background`. |
-| `media` | GPU VM | BullMQ consumers for heavy queues: `mediaProcess`, `videoTranscode`, `faceDetection`, `facialRecognition`, `personThumbnail`, `selfie`. No HTTP server. |
+| `ingest` | Main VM (same process as `api`) | BullMQ consumers for network/CPU-light queues: `import`, `match`, `notification`, `storageCleanup`, `background`, `facialRecognition`. |
+| `media` | GPU VM | BullMQ consumers for heavy queues: `mediaProcess`, `videoTranscode`, `faceDetection`, `smartSearch`, `personThumbnail`, `selfie`. No HTTP server. |
+
+`facialRecognition` sits with `ingest` despite the name: clustering makes no ML call, only pgvector KNN queries, so it belongs next to the database. On the GPU VM every query crossed a region at concurrency 1 and held the GPU at idle.
 
 **Required change to the ported `JobRepository.startWorkers()`**: Immich starts a Worker for *every* `QueueName`; EventLens adds a static map
 
@@ -78,9 +80,9 @@ R2 access uses a bucket-scoped API token (object read/write on the single bucket
 ## 4. Scaling model
 
 - **More GPU capacity** = boot another GPU VM with the same `docker-compose.gpu.yml` pointed at the same Redis/Postgres. BullMQ distributes jobs across consumers automatically.
-- **Hard constraint:** the `facialRecognition` queue must have **exactly one consumer globally** (concurrency 1). Immich enforces per-process concurrency 1 for this queue (it is in the non-concurrent set in `immich:server/src/services/queue.service.ts`); concurrent clustering races create duplicate persons for one identity. With N workers, BullMQ would give N× concurrency — so every **additional** GPU VM sets `EL_QUEUES_EXCLUDE=facialRecognition`. Same treatment for the `match` queue on the ingest side (idempotent, but single-consumer keeps ordering clean).
+- **Hard constraint:** the `facialRecognition` queue must have **exactly one consumer globally** (concurrency 1). Immich enforces per-process concurrency 1 for this queue (it is in the non-concurrent set in `immich:server/src/services/queue.service.ts`); concurrent clustering races create duplicate persons for one identity. With N workers, BullMQ would give N× concurrency. Since the queue now runs under `ingest`, the constraint binds the **API tier**: keep it at a single instance, or set `EL_QUEUES_EXCLUDE=facialRecognition` on all but one. GPU VMs no longer run it at all, so they scale freely. Same treatment for the `match` queue (idempotent, but single-consumer keeps ordering clean).
 - The ML sidecar scales 1:1 with its worker (localhost URL). A shared ML pool is possible later — the ported `machine-learning.repository.ts` already supports multiple URLs with failover.
-- The API tier can scale to multiple `api,ingest` instances behind the reverse proxy; sessions are DB-backed so no sticky sessions are needed. Exclude `match` on extras as above.
+- The API tier can scale to multiple `api,ingest` instances behind the reverse proxy; sessions are DB-backed so no sticky sessions are needed. Exclude `match` **and `facialRecognition`** on extras as above — the latter is a correctness requirement, not a tidiness one.
 
 ## 5. Process/data flow summary
 

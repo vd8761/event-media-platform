@@ -31,7 +31,7 @@ Super-admin queue dashboard + stats; gallery "download all" (zip streaming); sto
 
 | # | Risk | Impact | Mitigation |
 |---|---|---|---|
-| R1 | **`facialRecognition` concurrency must be 1 globally.** Multiple workers each get concurrency-1 → global N → duplicate persons per identity. | Corrupted clustering | Single consumer by deployment: extra GPU VMs set `EL_QUEUES_EXCLUDE=facialRecognition`; document in scaling playbook; assert in load test. |
+| R1 | **`facialRecognition` concurrency must be 1 globally.** Multiple workers each get concurrency-1 → global N → duplicate persons per identity. | Corrupted clustering | Single consumer by deployment: the queue runs under `ingest` on the API host, so extra **API** instances set `EL_QUEUES_EXCLUDE=facialRecognition` (GPU VMs never run it); documented in the scaling playbook; asserted in `test/queue-placement.spec.ts` and the R1 load test. |
 | R2 | **Missed `ownerId`→`eventId` scoping** in any ported face query silently matches faces across events. | Privacy breach | Scope inside SQL CTEs; `eventId`-first repository signatures; **mandated cross-event integration test** (M3 acceptance). |
 | R3 | **Cluster-based matching would drop low-frequency guests** (`minFaces: 3`). | Missing participant photos | Face-level matching is the design (D6). Do not "simplify" back to cluster matching. |
 | R4 | **sharp/ffmpeg need local files**; crashed jobs leak temp files; disk = concurrency × largest video. | Worker disk-full | Stage R2→`/cache`, delete in `finally`; hourly orphan sweep; disk alert. |

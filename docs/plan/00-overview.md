@@ -24,13 +24,13 @@ flowchart LR
 
     subgraph MainVM[Main VM]
         WEB[web - SvelteKit SPA]
-        API["backend<br/>EL_WORKERS_INCLUDE=api,ingest<br/>HTTP API + ingest queues:<br/>import / match / notification / cleanup"]
+        API["backend<br/>EL_WORKERS_INCLUDE=api,ingest<br/>HTTP API + ingest queues:<br/>import / match / notification /<br/>cleanup / facialRecognition"]
         PG[(Postgres<br/>+ VectorChord<br/>vector 512)]
         RD[(Redis / Valkey<br/>BullMQ)]
     end
 
     subgraph GPUVM[GPU VM]
-        WRK["backend-worker<br/>EL_WORKERS_INCLUDE=media<br/>media queues:<br/>thumbnails / transcode /<br/>faceDetection / facialRecognition"]
+        WRK["backend-worker<br/>EL_WORKERS_INCLUDE=media<br/>media queues:<br/>thumbnails / transcode /<br/>faceDetection"]
         ML["ml sidecar (CUDA)<br/>immich_ml verbatim<br/>POST /predict"]
     end
 

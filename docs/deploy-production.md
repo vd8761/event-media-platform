@@ -314,7 +314,9 @@ docker compose logs -f backend-worker  # "EventLens worker running [roles: media
 docker compose exec backend-worker sh -c 'wget -qO- http://ml:3003/ping'   # pong
 ```
 
-**Scaling to a second GPU VM:** identical stack plus `EL_QUEUES_EXCLUDE=facialRecognition`. Clustering must have exactly one consumer globally; every other queue load-balances via BullMQ automatically.
+**Scaling to a second GPU VM:** identical stack, no extra env needed — clustering no longer runs on the GPU boxes at all (it is an `ingest` queue on the API host). Every GPU queue load-balances via BullMQ automatically.
+
+**The one instance that must stay at one:** the API service runs `facialRecognition`, which must have exactly one consumer globally or concurrent clustering creates duplicate persons for a single face. Do not scale the API service past a single instance without first moving that queue elsewhere with `EL_QUEUES_EXCLUDE=facialRecognition` on all but one.
 
 ### 6.5 Pausing and resuming the box from EventLens
 

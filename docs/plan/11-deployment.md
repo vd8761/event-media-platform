@@ -53,7 +53,6 @@ services:
     image: eventlens-backend
     environment:
       EL_WORKERS_INCLUDE: media
-      # EL_QUEUES_EXCLUDE: facialRecognition   # ← set ONLY on 2nd..Nth GPU VM
       MACHINE_LEARNING_URL: http://ml:3003
       DB_SKIP_MIGRATIONS: "true"      # the main VM owns migrations
       # DATABASE_URL / REDIS_URL → tailnet IP of the main VM (from .env)
@@ -86,7 +85,7 @@ Prereqs: NVIDIA driver + `nvidia-container-toolkit` on the host (the compose `de
 
 | Group | Vars |
 |---|---|
-| Roles | `EL_WORKERS_INCLUDE` (`api,ingest` \| `media`), `EL_QUEUES_EXCLUDE` (extra GPU VMs: `facialRecognition`) |
+| Roles | `EL_WORKERS_INCLUDE` (`api,ingest` \| `media`), `EL_QUEUES_EXCLUDE` (extra **API** instances: `facialRecognition`, `match`), `EL_QUEUES_INCLUDE` (run a queue outside its role) |
 | Database | `DATABASE_URL` (one connection string for local, self-hosted and Neon alike; `sslmode` honoured, TLS required for any non-local host), `DB_SKIP_MIGRATIONS`, `DB_VECTOR_EXTENSION` (`pgvector` on Neon — VectorChord is not installable there) |
 | Redis | `REDIS_URL` (`redis://` or `rediss://`; TLS is mandatory on Upstash), or the discrete `REDIS_HOSTNAME`/`REDIS_PORT`/`REDIS_PASSWORD`/`REDIS_TLS` |
 | R2 | `R2_ENDPOINT`, `R2_BUCKET=eventlens-media`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` |
@@ -108,9 +107,9 @@ Prereqs: NVIDIA driver + `nvidia-container-toolkit` on the host (the compose `de
 
 | Need | Action |
 |---|---|
-| Faster processing during an event | Boot GPU VM #2 with the same `docker-compose.gpu.yml` + `EL_QUEUES_EXCLUDE=facialRecognition` (clustering stays single-consumer, [05-job-orchestration.md](05-job-orchestration.md) §1). BullMQ load-balances the rest automatically. |
+| Faster processing during an event | Boot GPU VM #2 with the same `docker-compose.gpu.yml` — no extra env. GPU VMs no longer run clustering, so there is nothing to exclude and BullMQ load-balances the rest automatically. |
 | GPU VM only during events | Workers are stateless: jobs wait in Redis while no worker is up; boot the GPU VM when an event starts, destroy it after — nothing is lost. |
-| API saturation | Second `backend` instance (`api,ingest`) behind the proxy; sessions are DB-backed. Exclude `match` on extras. |
+| API saturation | Second `backend` instance (`api,ingest`) behind the proxy; sessions are DB-backed. Extras **must** set `EL_QUEUES_EXCLUDE=facialRecognition,match` — clustering is single-consumer globally, and a second consumer creates duplicate persons. |
 | Shared ML pool | Point multiple workers' `MACHINE_LEARNING_URL` at a comma-separated URL list — the ported client already does health-mapped failover. |
 
 ## 6. Observability (M6)
