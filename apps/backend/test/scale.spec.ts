@@ -108,6 +108,10 @@ describe('scale: 10k faces / 500 participants', () => {
       logger,
       null as any, // ML — bypassed
       participantRepository,
+      // person — matching names the participant's cluster (see
+      // nameMatchedPerson). Stubbed to a no-op: this test is about which
+      // photos match, not about labelling.
+      { getPersonsForFaces: async () => [], update: async () => undefined } as any,
       null as any, // storage — not used by matching
       systemConfigRepository,
     );
