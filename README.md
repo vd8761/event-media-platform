@@ -2,8 +2,6 @@
 
 Event media management platform: organizations create events and ingest photos/videos (upload, Google Drive, OneDrive); a GPU worker runs Immich's facial classification pipeline; participants submit a selfie on a public event link and receive a tokenized personal gallery of every photo they appear in.
 
-Derived from [Immich](https://immich.app) (reference checkout `C:\Projects\immich`, read-only — code is copied out, never modified).
-
 ---
 
 ## Stack
