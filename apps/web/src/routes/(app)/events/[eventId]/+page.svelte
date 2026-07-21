@@ -19,6 +19,8 @@
     mdiUpload,
     mdiLinkVariant,
     mdiCheck,
+    mdiCloudUploadOutline,
+    mdiEyeOffOutline,
   } from '@mdi/js';
   import { onDestroy, onMount } from 'svelte';
 
@@ -256,34 +258,19 @@
       <!-- Draft/Active as a switch rather than a select buried in settings: it
            is the one setting an organiser flips repeatedly, and it decides
            whether the public link works at all. -->
-      <!-- A plain button, not a bound Switch: bits-ui owns its own checked
-           state, so a controlled `checked` prop plus onCheckedChange fought
-           with the optimistic update and the thumb snapped back. This is one
-           source of truth — `status` — and one handler. -->
-      <button
-        type="button"
-        role="switch"
-        aria-checked={isActive}
-        aria-label="Event status"
+      <!-- A button rather than a switch. A toggle implies a setting you flip
+           back and forth; publishing is a deliberate act with a consequence
+           (the public link starts working), and it reads better as something
+           you press than something you slide. -->
+      <Button
+        size="small"
+        variant={isActive ? 'outline' : 'filled'}
         disabled={statusBusy}
+        leadingIcon={isActive ? mdiEyeOffOutline : mdiCloudUploadOutline}
         onclick={() => setActive(!isActive)}
-        class="flex items-center gap-2 text-sm disabled:opacity-60"
       >
-        <span
-          class="relative h-6 w-11 shrink-0 rounded-full transition-colors {isActive
-            ? 'bg-primary'
-            : 'bg-gray-400/50'}"
-        >
-          <span
-            class="absolute top-0.5 size-5 rounded-full bg-white shadow transition-all {isActive
-              ? 'start-[1.375rem]'
-              : 'start-0.5'}"
-          ></span>
-        </span>
-        <span class="font-medium {isActive ? 'text-primary' : 'text-gray-500'}">
-          {isActive ? 'Active' : 'Draft'}
-        </span>
-      </button>
+        {isActive ? 'Unpublish' : 'Publish media'}
+      </Button>
     {/if}
 
     {#if isActive}

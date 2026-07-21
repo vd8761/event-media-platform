@@ -1,6 +1,5 @@
 <script lang="ts">
   import { api, type AssetItem, type PersonItem, type ProcessingStatus } from '$lib/api';
-  import ProcessingBar from '$lib/components/ProcessingBar.svelte';
   import {
     Alert,
     Badge,
@@ -68,6 +67,32 @@
       return (a.name ?? '').localeCompare(b.name ?? '');
     }),
   );
+
+
+  // Buckets by how many photos someone appears in, largest first. Only bands
+  // that actually contain someone are rendered, and the list starts at the band
+  // holding the most-photographed person — an event whose busiest person has
+  // 12 photos should not show empty "100+" and "50-100" headings.
+  const COUNT_BANDS: { label: string; min: number; max: number }[] = [
+    { label: '100+ photos', min: 100, max: Infinity },
+    { label: '50-100 photos', min: 50, max: 100 },
+    { label: '20-50 photos', min: 20, max: 50 },
+    { label: '10-20 photos', min: 10, max: 20 },
+    { label: '5-10 photos', min: 5, max: 10 },
+    { label: '1-5 photos', min: 1, max: 5 },
+  ];
+
+  // Named people stay in one block above the bands: an organiser looking for
+  // someone they have already identified should not have to know how many
+  // photos that person is in.
+  const namedPeople = $derived(sortedPeople.filter((person) => person.name));
+  const bandedPeople = $derived.by(() => {
+    const unnamed = sortedPeople.filter((person) => !person.name);
+    return COUNT_BANDS.map((band) => ({
+      ...band,
+      people: unnamed.filter((person) => person.faceCount >= band.min && person.faceCount < band.max),
+    })).filter((band) => band.people.length > 0);
+  });
 
   let photos = $state<AssetItem[]>([]);
   let photosLoading = $state(false);
@@ -185,10 +210,6 @@
 
 <svelte:head><title>People — {data.event.name}</title></svelte:head>
 
-{#if processing}
-  <ProcessingBar status={processing} {canManage} onReprocess={reprocessFaces} />
-{/if}
-
 {#if loading}
   <div class="flex justify-center py-20"><LoadingSpinner size="giant" /></div>
 {:else}
@@ -229,144 +250,106 @@
       {/if}
     </div>
   {:else}
-    <!-- Tighter tiles than before (9rem was portrait-sized); these are for
-         picking someone out, not admiring. -->
-    <div class="mb-8 grid grid-cols-[repeat(auto-fill,minmax(6.5rem,1fr))] gap-3">
-      {#each sortedPeople as person (person.id)}
+    <!-- Named people first as one block, then unnamed grouped by how many
+         photos they appear in. Larger tiles than the previous 6.5rem: the
+         portraits are wider-cropped now and were being squeezed. -->
+    {#snippet personTile(person: PersonItem)}
         {@const isPicked = picked.has(person.id)}
-        <div class="group relative text-center {person.isHidden ? 'opacity-40' : ''}">
-          {#if merging}
-            <!-- merge mode: the whole card toggles selection instead of navigating -->
-            <button class="w-full" onclick={() => togglePick(person.id)}>
-              <div class="relative mx-auto aspect-square w-full">
-                {#if person.thumbnailUrl}
-                  <img
-                    src={person.thumbnailUrl}
-                    alt={person.name || 'Unnamed person'}
-                    class="h-full w-full rounded-2xl object-cover shadow {isPicked
-                      ? 'ring-immich-primary ring-4 ring-offset-2'
-                      : ''}"
-                  />
-                {:else}
-                  <div class="flex h-full w-full items-center justify-center rounded-2xl bg-gray-100 text-gray-400">
-                    <LoadingSpinner />
-                  </div>
-                {/if}
-                {#if isPicked}
-                  <span
-                    class="bg-immich-primary absolute end-1 top-1 flex h-6 w-6 items-center justify-center rounded-full text-immich-bg"
-                  >
-                    <Icon icon={mdiCheck} size="1rem" />
-                  </span>
-                {/if}
-              </div>
-              <p class="md-title-small mt-2 truncate">
-                {#if person.name}{person.name}{:else}<span class="text-gray-400">Add a name</span>{/if}
-              </p>
-              <p class="md-label-medium text-gray-500">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
-            </button>
-          {:else}
-            <a class="block w-full" href={`/events/${eventId}/people/${person.id}`}>
+      <div class="group relative text-center {person.isHidden ? 'opacity-40' : ''}">
+        {#if merging}
+          <!-- merge mode: the whole card toggles selection instead of navigating -->
+          <button class="w-full" onclick={() => togglePick(person.id)}>
+            <div class="relative mx-auto aspect-square w-full">
               {#if person.thumbnailUrl}
                 <img
                   src={person.thumbnailUrl}
                   alt={person.name || 'Unnamed person'}
-                  class="mx-auto aspect-square w-full rounded-2xl object-cover shadow transition group-hover:brightness-95"
+                  class="h-full w-full rounded-[4px] object-cover shadow {isPicked
+                    ? 'ring-immich-primary ring-4 ring-offset-2'
+                    : ''}"
                 />
               {:else}
-                <div
-                  class="mx-auto flex aspect-square w-full items-center justify-center rounded-2xl bg-gray-100 text-gray-400"
-                  title="Portrait still being generated"
-                >
+                <div class="flex h-full w-full items-center justify-center rounded-[4px] bg-gray-100 text-gray-400">
                   <LoadingSpinner />
                 </div>
               {/if}
-              <p class="md-title-small mt-2 truncate">
-                {#if person.name}{person.name}{:else}<span class="text-gray-400">Add a name</span>{/if}
-              </p>
-              <p class="md-label-medium text-gray-500">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
-            </a>
-            {#if canManage}
-              <div class="absolute end-1 top-1 hidden gap-1 group-hover:flex">
-                <IconButton
-                  icon={mdiPencil}
-                  aria-label="Rename"
-                  size="tiny"
-                  onclick={() => {
-                    renameTarget = person;
-                    renameValue = person.name;
-                  }}
-                />
-                <IconButton
-                  icon={person.isHidden ? mdiEye : mdiEyeOff}
-                  aria-label={person.isHidden ? 'Show' : 'Hide'}
-                  size="tiny"
-                  color="secondary"
-                  onclick={() => toggleHidden(person)}
-                />
+              {#if isPicked}
+                <span
+                  class="bg-immich-primary absolute end-1 top-1 flex h-6 w-6 items-center justify-center rounded-full text-immich-bg"
+                >
+                  <Icon icon={mdiCheck} size="1rem" />
+                </span>
+              {/if}
+            </div>
+            <p class="md-title-small mt-2 truncate">
+              {#if person.name}{person.name}{:else}<span class="text-gray-400">Add a name</span>{/if}
+            </p>
+            <p class="md-label-medium text-gray-500">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
+          </button>
+        {:else}
+          <a class="block w-full" href={`/events/${eventId}/people/${person.id}`}>
+            {#if person.thumbnailUrl}
+              <img
+                src={person.thumbnailUrl}
+                alt={person.name || 'Unnamed person'}
+                class="mx-auto aspect-square w-full rounded-[4px] object-cover shadow transition group-hover:brightness-95"
+              />
+            {:else}
+              <div
+                class="mx-auto flex aspect-square w-full items-center justify-center rounded-[4px] bg-gray-100 text-gray-400"
+                title="Portrait still being generated"
+              >
+                <LoadingSpinner />
               </div>
             {/if}
-          {/if}
-        </div>
-      {/each}
-    </div>
-  {/if}
-
-  <!-- per-photo detection state -->
-  <h2 class="md-title-large mb-4">Photo processing</h2>
-  <div class="mb-4 flex flex-wrap gap-2">
-    {#each tabs as item (item.id)}
-      <button
-        class="md-label-large min-h-10 rounded-full px-4 transition
-          {tab === item.id ? 'bg-immich-primary text-immich-bg' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
-        onclick={() => selectTab(item.id)}
-      >
-        {item.label}
-        {#if processing}
-          <span class="ms-1 opacity-70">{item.count(processing)}</span>
-        {/if}
-      </button>
-    {/each}
-  </div>
-
-  {#if photosLoading}
-    <div class="flex justify-center py-10"><LoadingSpinner /></div>
-  {:else if photos.length === 0}
-    <p class="rounded-2xl border border-dashed border-gray-300 p-10 text-center text-sm text-gray-500">
-      {#if tab === 'pending'}
-        Nothing waiting — every photo has been through face detection.
-      {:else if tab === 'found'}
-        No photos with faces yet.
-      {:else}
-        No photos were processed without finding a face.
-      {/if}
-    </p>
-  {:else}
-    <div class="grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-2">
-      {#each photos as photo (photo.id)}
-        <div class="relative overflow-hidden rounded-lg bg-gray-100">
-          {#if photo.thumbUrl}
-            <img src={photo.thumbUrl} alt={photo.originalFilename} class="aspect-square w-full object-cover" />
-          {:else}
-            <div class="flex aspect-square w-full items-center justify-center text-gray-400">
-              <LoadingSpinner size="small" />
+            <p class="md-title-small mt-2 truncate">
+              {#if person.name}{person.name}{:else}<span class="text-gray-400">Add a name</span>{/if}
+            </p>
+            <p class="md-label-medium text-gray-500">{person.faceCount} photo{person.faceCount === 1 ? '' : 's'}</p>
+          </a>
+          {#if canManage}
+            <div class="absolute end-1 top-1 hidden gap-1 group-hover:flex">
+              <IconButton
+                icon={mdiPencil}
+                aria-label="Rename"
+                size="tiny"
+                onclick={() => {
+                  renameTarget = person;
+                  renameValue = person.name;
+                }}
+              />
+              <IconButton
+                icon={person.isHidden ? mdiEye : mdiEyeOff}
+                aria-label={person.isHidden ? 'Show' : 'Hide'}
+                size="tiny"
+                color="secondary"
+                onclick={() => toggleHidden(person)}
+              />
             </div>
           {/if}
-          <div class="absolute bottom-1 start-1">
-            {#if tab === 'pending'}
-              <Badge color={photo.status === 'processed' ? 'warning' : 'secondary'} size="small">
-                {photo.status === 'processed' ? 'queued' : photo.status}
-              </Badge>
-            {:else if tab === 'found'}
-              <Badge color="success" size="small">{photo.faceCount} face{photo.faceCount === 1 ? '' : 's'}</Badge>
-            {:else}
-              <Badge color="secondary" size="small">no faces</Badge>
-            {/if}
-          </div>
-        </div>
-      {/each}
-    </div>
+        {/if}
+      </div>
+    {/snippet}
+
+    {#if namedPeople.length > 0}
+      <div class="mb-8 grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-4">
+        {#each namedPeople as person (person.id)}
+          {@render personTile(person)}
+        {/each}
+      </div>
+    {/if}
+
+    {#each bandedPeople as band (band.label)}
+      <h2 class="md-title-small mb-3 text-gray-500">{band.label}</h2>
+      <div class="mb-8 grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-4">
+        {#each band.people as person (person.id)}
+          {@render personTile(person)}
+        {/each}
+      </div>
+    {/each}
+
   {/if}
+
 {/if}
 
 {#if mergeTargetId && mergeTarget}

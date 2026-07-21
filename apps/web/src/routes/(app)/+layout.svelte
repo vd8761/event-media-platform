@@ -76,6 +76,6 @@
 
 <!-- Rendered from the layout, not from the event page: uploads continue across
      navigation, so the panel has to outlive the route that started them. -->
-<UploadPanel uploads={uploadStore.items} onDismiss={() => uploadStore.dismiss()} />
+<UploadPanel uploads={uploadStore.items} duplicates={uploadStore.duplicates} onDismiss={() => uploadStore.dismiss()} />
 
 <svelte:window onbeforeunload={guardUnload} />

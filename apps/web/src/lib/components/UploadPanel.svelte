@@ -29,17 +29,21 @@
 
   interface Props {
     uploads: UploadItem[];
+    // Reported separately because duplicate rows are removed from the list the
+    // moment they are detected — nothing was uploaded, so there is nothing to
+    // show progress for — but the outcome still needs stating.
+    duplicates?: number;
     onDismiss: () => void;
   }
 
-  let { uploads, onDismiss }: Props = $props();
+  let { uploads, duplicates: duplicatesProp = 0, onDismiss }: Props = $props();
 
   let showDetail = $state(true);
 
   const stats = $derived.by(() => {
     let success = 0;
     let errors = 0;
-    let duplicates = 0;
+    let duplicates = duplicatesProp;
     let remaining = 0;
     for (const upload of uploads) {
       switch (upload.state) {
@@ -60,7 +64,7 @@
         }
       }
     }
-    return { success, errors, duplicates, remaining, total: uploads.length };
+    return { success, errors, duplicates, remaining, total: uploads.length + duplicates };
   });
 
   const finished = $derived(stats.remaining === 0);
@@ -74,7 +78,10 @@
   });
 </script>
 
-{#if uploads.length > 0}
+<!-- `|| duplicates` matters: a batch where every file was already in the event
+     removes every row, and without this the panel would vanish and the user
+     would be left wondering whether anything happened at all. -->
+{#if uploads.length > 0 || duplicatesProp > 0}
   <div in:fade={{ duration: 250 }} out:fade={{ duration: 250 }} class="fixed end-6 bottom-6 z-60">
     {#if showDetail}
       <div

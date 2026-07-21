@@ -22,6 +22,7 @@ class UploadStore {
   #items = $state<UploadItem[]>([]);
   #nextId = 0;
   #dismissTimer: ReturnType<typeof setTimeout> | undefined;
+  #duplicates = $state(0);
 
   // Assets accepted by the server but not yet in the event's own list. The
   // event page drains these so a photo appears the instant it lands, rather
@@ -46,8 +47,21 @@ class UploadStore {
     ).length;
   }
 
+  // Nothing was uploaded and nothing will be, so a duplicate row is a dead
+  // entry the user has to read past. The count survives in the header so the
+  // outcome is still reported — it just does not occupy a row, and crucially it
+  // no longer blocks the auto-dismiss below.
+  #drop(id: number) {
+    this.#items = this.#items.filter((item) => item.id !== id);
+  }
+
+  get duplicates(): number {
+    return this.#duplicates;
+  }
+
   dismiss() {
     this.#items = [];
+    this.#duplicates = 0;
   }
 
   // Hand over the assets uploaded for an event since the last call. Returned
@@ -78,7 +92,8 @@ class UploadStore {
       const checksum = await sha1Hex(file);
       const { results } = await api.assets.bulkUploadCheck(eventId, [{ id: file.name, checksum }]);
       if (results[0]?.action === 'reject') {
-        this.#patch(item.id, { state: 'duplicate' });
+        this.#drop(item.id);
+        this.#duplicates += 1;
         return;
       }
 
@@ -86,7 +101,8 @@ class UploadStore {
       const result = await uploadAsset(eventId, file, (percent) => this.#patch(item.id, { progress: percent }));
 
       if (result.status === 'duplicate') {
-        this.#patch(item.id, { state: 'duplicate', progress: 100 });
+        this.#drop(item.id);
+        this.#duplicates += 1;
         return;
       }
 
@@ -136,6 +152,7 @@ class UploadStore {
       clearTimeout(this.#dismissTimer);
       this.#dismissTimer = undefined;
     }
+    this.#duplicates = 0;
 
     const batch: UploadItem[] = files.map((file) => ({
       id: this.#nextId++,
@@ -154,8 +171,9 @@ class UploadStore {
     };
     await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, files.length) }, worker));
 
-    // Clean runs disappear on their own; anything with a duplicate or a
-    // failure stays up so it can actually be read.
+    // Only a *failure* holds the panel open. Duplicates used to as well, which
+    // meant one already-uploaded photo left the panel on screen indefinitely
+    // with nothing actionable in it.
     if (this.#items.every((item) => item.state === 'done')) {
       this.#dismissTimer = setTimeout(() => this.dismiss(), DISMISS_AFTER_MS);
     }

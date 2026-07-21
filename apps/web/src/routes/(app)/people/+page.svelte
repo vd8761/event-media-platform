@@ -114,16 +114,16 @@
       <!-- Smaller tiles and more columns than before: these are identification
            aids, not portraits to admire, and the old size fit barely a dozen on
            screen. -->
-      <div class="grid grid-cols-4 gap-x-3 gap-y-5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12">
+      <div class="grid grid-cols-3 gap-x-4 gap-y-5 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10">
         {#each group.people as person (person.id)}
           <button
             type="button"
             onclick={() => goto(`/events/${person.eventId}/people/${person.id}`)}
             title={person.name}
-            class="group flex flex-col items-center gap-1.5 text-center"
+            class="group flex flex-col items-center gap-2 text-center"
           >
             <div
-              class="relative aspect-square w-full overflow-hidden rounded-2xl bg-subtle ring-1 ring-black/5 transition group-hover:ring-2 group-hover:ring-immich-primary"
+              class="relative aspect-square w-full overflow-hidden rounded-[4px] bg-subtle ring-1 ring-black/5 transition group-hover:ring-2 group-hover:ring-immich-primary"
             >
               {#if person.thumbnailUrl}
                 <img src={person.thumbnailUrl} alt="" loading="lazy" class="h-full w-full object-cover" />
@@ -133,7 +133,7 @@
                 </span>
               {/if}
             </div>
-            <span class="block w-full truncate text-xs font-medium">{person.name}</span>
+            <span class="block w-full truncate text-sm font-medium">{person.name}</span>
           </button>
         {/each}
       </div>

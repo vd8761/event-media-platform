@@ -34,10 +34,10 @@ const QUEUE_ALL_PAGE_SIZE = 1000;
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 // Multiplier on the detected face box when cropping a portrait. 1.0 is the box
-// itself; 1.8 leaves roughly half the frame as surrounding context, which is
-// about what Google Photos shows. The crop still shrinks near an image edge
+// itself; 2.4 leaves the head, hair and shoulders in frame rather than a
+// face filling the tile. The crop still shrinks near an image edge
 // rather than padding, so a face at the border stays centred on itself.
-const FACE_CROP_ZOOM_OUT = 1.8;
+const FACE_CROP_ZOOM_OUT = 2.4;
 
 @Injectable()
 export class FaceService {
