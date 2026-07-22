@@ -692,7 +692,10 @@ export const api = {
       post<EventItem>(`/orgs/${orgId}/events`, body),
     get: (eventId: string) => get<EventItem>(`/events/${eventId}`),
     update: (eventId: string, body: Partial<EventItem>) => put<EventItem>(`/events/${eventId}`, body),
-    remove: (eventId: string) => del<void>(`/events/${eventId}`),
+    // `confirmation` must be the event's slug — the server rejects anything
+    // else. Irreversible: the media is destroyed and the rows go with it.
+    remove: (eventId: string, confirmation: string) =>
+      del<void>(`/events/${eventId}`, { confirmation }),
     processing: (eventId: string) => get<ProcessingStatus>(`/events/${eventId}/processing`),
     reprocessFaces: (eventId: string, force = false) =>
       post<{ queued: number }>(`/events/${eventId}/reprocess-faces`, { force }),

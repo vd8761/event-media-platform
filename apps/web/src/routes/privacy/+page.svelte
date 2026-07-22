@@ -3,11 +3,10 @@
   // someone who has not signed in, and by a guest who only ever received a
   // gallery link.
   //
-  // Every technical claim here is one the codebase actually supports. Where a
-  // business fact was needed that only Touchmark can confirm (CIN, the named
-  // Grievance Officer, the effective date), there is a TODO rather than an
-  // invented value — a specific but wrong claim in a privacy policy is worse
-  // than an obvious gap, because it is the part that creates liability.
+  // Every technical claim here is one the codebase actually supports, and the
+  // company details are Touchmark's own. The liability and jurisdiction terms
+  // in the accompanying Terms & Conditions still want a lawyer's eye before
+  // this pair is relied on commercially.
   import Logo from '$lib/components/Logo.svelte';
 
   const LAST_UPDATED = '22 July 2026';
@@ -202,10 +201,16 @@
       We may also disclose data where the law requires it, or to establish or defend a legal claim. Where the law
       permits, we will tell you first.
     </p>
-    <p class="note">
-      TODO (Touchmark to confirm before publication): whether any of the above process data outside India, and whether
-      standard contractual clauses or equivalent safeguards are in place. This section must state the position
-      accurately.
+    <h3>Where your data is held</h3>
+    <p>
+      EventLens is operated from India, but the providers above run in different regions, so your data may be stored or
+      processed in <strong>India, Singapore or the United States</strong> depending on the service handling it. Photos
+      and videos, email delivery and GPU processing may each sit in a different one of those locations.
+    </p>
+    <p>
+      Where data leaves India, we rely on contractual protections with each provider requiring them to process it only
+      on our instructions and to maintain appropriate security. We do not transfer personal data to any country the
+      Central Government has restricted under section 16 of the Digital Personal Data Protection Act, 2023.
     </p>
 
     <h2>Your rights</h2>
@@ -250,10 +255,21 @@
     </p>
 
     <h2>Grievance Officer</h2>
-    <p class="note">
-      TODO (Touchmark to confirm before publication): the Digital Personal Data Protection Act, 2023 requires a named
-      Grievance Officer with contact details. Insert name, designation, email and postal address here. Until this is
-      filled in, complaints should go to <a href="mailto:info@touchmarkdes.com">info@touchmarkdes.com</a>.
+    <p>
+      If you are unhappy with how we have handled your personal data or your request about it, you can raise it
+      directly with our Grievance Officer:
+    </p>
+    <p>
+      <strong>Bharathiraja Thangappalam</strong><br />
+      Director &amp; Chief Executive Officer<br />
+      Touchmark Descience Pvt. Ltd<br />
+      Tamarai Tech Park (Level 5), S.P. Plot No. 16-19 &amp; 20-A,<br />
+      Thiru Vi Ka Industrial Estate, Guindy, Chennai, Tamil Nadu 600032, India<br />
+      <a href="mailto:info@touchmarkdes.com">info@touchmarkdes.com</a> · +91 44 4065 2648
+    </p>
+    <p>
+      We will acknowledge your complaint and respond within 30 days. If you are not satisfied with our response, you
+      may complain to the Data Protection Board of India.
     </p>
   </div>
 </div>

@@ -2,7 +2,7 @@
   import { goto, invalidateAll } from '$app/navigation';
   import { api, ApiError, type AssetItem } from '$lib/api';
   import { shellStore } from '$lib/shell.svelte';
-  import { Alert, Button, Input, Switch, Textarea } from '@immich/ui';
+  import { Alert, Button, Input, Modal, ModalBody, ModalFooter, Switch, Textarea } from '@immich/ui';
 
   let { data } = $props();
 
@@ -185,11 +185,40 @@
       'Permanently delete every photo in this event? This cannot be undone.',
     );
 
+  // --- delete ---
+  // A typed confirmation rather than a browser confirm(). Deleting destroys
+  // the photos outright, and a single OK on a dialog that looks like every
+  // other dialog is not a proportionate amount of friction for that. Typing
+  // the slug forces the organiser to look at *which* event they are about to
+  // destroy — the failure mode this guards against is deleting the right way
+  // on the wrong event.
+  let deleteOpen = $state(false);
+  let deleteConfirmation = $state('');
+  let deleteBusy = $state(false);
+  let deleteError = $state('');
+
+  const deleteArmed = $derived(deleteConfirmation.trim() === data.event.slug);
+
+  function openDelete() {
+    deleteConfirmation = '';
+    deleteError = '';
+    deleteOpen = true;
+  }
+
   async function removeEvent() {
-    if (!confirm(`Delete "${data.event.name}"? All photos, people and participants will be removed.`)) return;
-    await api.events.remove(data.event.id);
-    await shellStore.refresh();
-    await goto('/events');
+    if (!deleteArmed) {
+      return;
+    }
+    deleteBusy = true;
+    deleteError = '';
+    try {
+      await api.events.remove(data.event.id, deleteConfirmation.trim());
+      await shellStore.refresh();
+      await goto('/events');
+    } catch (err) {
+      deleteError = err instanceof ApiError ? err.message : 'Could not delete the event';
+      deleteBusy = false;
+    }
   }
 </script>
 
@@ -359,7 +388,32 @@
 
     <div class="mt-6 rounded-3xl border border-red-200 p-5">
       <p class="md-title-small mb-3 text-red-700">Danger zone</p>
-      <Button color="danger" variant="outline" size="small" onclick={removeEvent}>Delete event</Button>
+      <Button color="danger" variant="outline" size="small" onclick={openDelete}>Delete event</Button>
     </div>
   </div>
 </div>
+
+{#if deleteOpen}
+  <Modal title="Delete this event?" size="small" onClose={() => (deleteOpen = false)}>
+    <ModalBody>
+      <p class="mb-3 text-sm">
+        This permanently destroys every photo and video in <strong>{data.event.name}</strong>, along with its people,
+        guests and gallery links. It happens immediately and <strong>cannot be undone</strong> — there is no restore
+        window and no backup to recover from.
+      </p>
+      <p class="mb-4 text-sm text-gray-500">
+        Type <code class="rounded bg-subtle px-1.5 py-0.5 font-mono text-xs">{data.event.slug}</code> to confirm.
+      </p>
+      <Input bind:value={deleteConfirmation} placeholder={data.event.slug} autocomplete="off" />
+      {#if deleteError}
+        <p class="mt-3 text-sm text-red-600">{deleteError}</p>
+      {/if}
+    </ModalBody>
+    <ModalFooter>
+      <Button variant="outline" onclick={() => (deleteOpen = false)} disabled={deleteBusy}>Cancel</Button>
+      <Button color="danger" onclick={removeEvent} disabled={!deleteArmed || deleteBusy}>
+        {deleteBusy ? 'Deleting…' : 'Delete permanently'}
+      </Button>
+    </ModalFooter>
+  </Modal>
+{/if}

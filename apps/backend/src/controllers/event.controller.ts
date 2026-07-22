@@ -1,7 +1,14 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { AuthDto } from 'src/dtos/auth.dto';
-import { CreateEventDto, ExtendExpiryDto, ReprocessFacesDto, SetCoverDto, UpdateEventDto } from 'src/dtos/event.dto';
+import {
+  CreateEventDto,
+  DeleteEventDto,
+  ExtendExpiryDto,
+  ReprocessFacesDto,
+  SetCoverDto,
+  UpdateEventDto,
+} from 'src/dtos/event.dto';
 import { OrgRole } from 'src/enum';
 import { Auth, Authenticated } from 'src/middleware/auth.guard';
 import { EventRepository } from 'src/repositories/event.repository';
@@ -114,8 +121,8 @@ export class EventController {
   @Delete('events/:eventId')
   @HttpCode(204)
   @Authenticated({ orgRole: OrgRole.Admin })
-  async removeEvent(@Param('eventId') eventId: string) {
+  async removeEvent(@Param('eventId') eventId: string, @Body() dto: DeleteEventDto) {
     const orgId = await this.eventRepository.getOrgId(eventId);
-    return this.eventService.remove(orgId ?? '', eventId);
+    return this.eventService.remove(orgId ?? '', eventId, dto.confirmation);
   }
 }

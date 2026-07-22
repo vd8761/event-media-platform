@@ -2,9 +2,9 @@
   // Terms and conditions. Public route for the same reason as the privacy
   // policy — a guest with only a gallery link must be able to read it.
   //
-  // As with the policy, business facts that only Touchmark can confirm (CIN,
-  // governing-law seat, plan pricing and refund terms) are marked TODO rather
-  // than invented.
+  // The liability cap in section 11 and the jurisdiction clause in section 14
+  // are drafted, not advised — they are the two clauses that most want counsel
+  // sign-off before this is relied on commercially.
   import Logo from '$lib/components/Logo.svelte';
 
   const LAST_UPDATED = '22 July 2026';
@@ -130,10 +130,20 @@
     </p>
 
     <h2>8. Plans, limits and payment</h2>
-    <p class="note">
-      TODO (Touchmark to confirm before publication): plan pricing, billing cycle, taxes, renewal and cancellation
-      terms, refund policy, and what happens to stored media when a paid plan lapses or an account is closed for
-      non-payment. That last point is the one customers will care about most and must be stated explicitly.
+    <p>
+      EventLens is offered in tiers. Each tier sets how much storage your organisation has and how many events it may
+      run at once, and your current usage against those limits is visible in the application at all times.
+    </p>
+    <p>
+      <strong>There is no payment on this website.</strong> You cannot buy or upgrade a plan here, and we do not
+      collect card details through EventLens. Tiers are arranged directly with us — we agree the tier that suits your
+      requirement, and it is activated on your account once you confirm. Any charges, invoicing and applicable taxes
+      are handled under that separate arrangement, not through this service.
+    </p>
+    <p>
+      If your arrangement with us ends or is not renewed, we will tell you before your account is closed and give you a
+      reasonable opportunity to download your content. We will not delete media without notice for a commercial
+      reason.
     </p>
 
     <h2>9. Availability</h2>
@@ -142,9 +152,11 @@
       Maintenance, provider outages and faults happen. Face detection runs on GPU capacity that is started on demand,
       so processing time varies with load — a large upload may take a while to work through.
     </p>
-    <p class="note">
-      TODO (Touchmark to confirm before publication): whether any uptime or support-response commitment is offered on
-      paid plans. If so, state it here; if not, this section stands as written.
+    <p>
+      <strong>We do not offer an uptime guarantee or a service level agreement.</strong> We aim to keep EventLens
+      running well and to fix problems promptly, but we make no binding commitment about availability or response
+      times. If your event depends on photos being delivered by a particular moment, plan accordingly and keep your
+      own copies.
     </p>
 
     <h2>10. Suspension</h2>
@@ -164,10 +176,14 @@
       Nothing here limits liability that cannot lawfully be limited — including for death or personal injury caused by
       negligence, or for fraud.
     </p>
-    <p class="note">
-      TODO (Touchmark to confirm before publication): the liability cap, usually expressed as fees paid in the
-      preceding 12 months. This needs a commercial decision and should be reviewed by counsel — an unenforceable cap is
-      no cap at all.
+    <p>
+      Where liability is not excluded, our total liability to you for all claims arising in any twelve-month period is
+      limited to the greater of: the fees you paid us for EventLens in the twelve months before the claim arose, or
+      ₹10,000. Where no fees have been paid, that floor is the cap.
+    </p>
+    <p>
+      In particular, we are not liable for content lost through your own deletion. Deleting an event destroys its
+      photos immediately and permanently, as section 7 explains, and we cannot recover it.
     </p>
 
     <h2>12. Indemnity</h2>
@@ -184,11 +200,15 @@
     </p>
 
     <h2>14. Governing law</h2>
-    <p class="note">
-      TODO (Touchmark to confirm before publication): governing law and the courts having jurisdiction. Given
-      incorporation in India and a registered office in Chennai, the courts of Chennai, Tamil Nadu would be the
-      expected choice — but this is a legal decision, and it is complicated by the Singapore and United Kingdom
-      offices and by customers outside India. Confirm with counsel rather than adopting this note as drafted.
+    <p>
+      These terms are governed by the laws of India, and the courts at Chennai, Tamil Nadu have exclusive jurisdiction
+      over any dispute arising from them.
+    </p>
+    <p>
+      EventLens is available to customers outside India. If you use it from another country you do so on your own
+      initiative and are responsible for complying with your local law — including any law governing photography,
+      consent, or the processing of biometric data at your events. Nothing here removes any protection that the
+      mandatory consumer law of your own country gives you and that cannot lawfully be waived.
     </p>
 
     <h2>15. Contact</h2>
@@ -198,10 +218,6 @@
     </p>
     <p>
       <a href="mailto:info@touchmarkdes.com">info@touchmarkdes.com</a> · +91 44 4065 2648
-    </p>
-    <p class="note">
-      TODO (Touchmark to confirm before publication): Corporate Identity Number (CIN) and GSTIN, which Indian
-      companies are generally expected to display.
     </p>
   </div>
 </div>
