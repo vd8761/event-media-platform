@@ -186,15 +186,25 @@ export class AssetRepository {
   // objects are still in R2 until the purge sweep runs, so excluding them
   // would under-report the bill. No event count here: it would disagree with
   // the sidebar's own list, which shows live events only.
+  // The figure in the sidebar footer. Must agree with getOrgStorageBytes — this
+  // is what the organisation reads, that is what the limit is enforced against,
+  // and a footer that disagrees with the quota is how someone ends up blocked
+  // from uploading while being told they have room.
   async getOrgStorage(orgId: string): Promise<{ bytes: number; assets: number }> {
     const row = await this.db
       .selectFrom('asset')
+      .innerJoin('event', 'event.id', 'asset.eventId')
       .select((eb) => [
         sql<string>`coalesce(sum(asset.file_size), 0)`.as('bytes'),
         eb.fn.countAll<string>().as('assets'),
       ])
-      .where('asset.orgId', '=', orgId)
+      // Scoped through the event rather than asset.orgId. The denormalised
+      // column is the same value today, but going through the event is what
+      // makes the deleted-event filter below possible, and it keeps this query
+      // and the quota query reading from one source of truth.
+      .where('event.orgId', '=', orgId)
       .where('asset.deletedAt', 'is', null)
+      .where('event.deletedAt', 'is', null)
       .executeTakeFirst();
 
     return { bytes: Number(row?.bytes ?? 0), assets: Number(row?.assets ?? 0) };
@@ -212,6 +222,12 @@ export class AssetRepository {
       .innerJoin('event', 'event.id', 'asset.eventId')
       .where('event.orgId', '=', orgId)
       .where('asset.deletedAt', 'is', null)
+      // Assets of a deleted event do not count. Deleting an event queues an
+      // immediate R2 prefix delete, so those bytes are already gone from
+      // storage — charging quota for them bills an organisation for space that
+      // physically does not exist, and enough deletions would put an org at its
+      // limit with an empty bucket.
+      .where('event.deletedAt', 'is', null)
       .select(sql<string>`coalesce(sum(asset.file_size), 0)`.as('bytes'))
       .executeTakeFirst();
 
