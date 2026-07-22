@@ -284,8 +284,9 @@ export interface SidebarEvent {
 }
 
 export interface OrgShell {
-  // Includes media belonging to soft-deleted events — those bytes are still
-  // in R2 until the purge sweep runs.
+  // Live media only. Deleted events are excluded: their objects are removed
+  // from R2 as soon as the event is deleted, so counting them would show an
+  // organisation using storage that no longer exists anywhere.
   storage: { bytes: number; assets: number };
   events: SidebarEvent[];
   // Named clusters only. Drives whether the sidebar offers People at all —

@@ -123,8 +123,23 @@ export class AdminService {
         eb.selectFrom('organization').where('deletedAt', 'is', null).select(sql<number>`count(*)::int`.as('count')).as('organizations'),
         eb.selectFrom('user').where('deletedAt', 'is', null).select(sql<number>`count(*)::int`.as('count')).as('users'),
         eb.selectFrom('event').where('deletedAt', 'is', null).select(sql<number>`count(*)::int`.as('count')).as('events'),
-        eb.selectFrom('asset').where('deletedAt', 'is', null).select(sql<number>`count(*)::int`.as('count')).as('assets'),
-        eb.selectFrom('asset').where('deletedAt', 'is', null).select(sql<number>`coalesce(sum(file_size), 0)::bigint`.as('sum')).as('storageBytes'),
+        // Joined through event for the same reason as the participant count
+        // below: these totals must equal the sum of the per-organization rows,
+        // and an asset belonging to a deleted event is counted in neither.
+        eb
+          .selectFrom('asset')
+          .innerJoin('event', 'event.id', 'asset.eventId')
+          .where('asset.deletedAt', 'is', null)
+          .where('event.deletedAt', 'is', null)
+          .select(sql<number>`count(*)::int`.as('count'))
+          .as('assets'),
+        eb
+          .selectFrom('asset')
+          .innerJoin('event', 'event.id', 'asset.eventId')
+          .where('asset.deletedAt', 'is', null)
+          .where('event.deletedAt', 'is', null)
+          .select(sql<number>`coalesce(sum(asset.file_size), 0)::bigint`.as('sum'))
+          .as('storageBytes'),
         eb.selectFrom('person').select(sql<number>`count(*)::int`.as('count')).as('people'),
         // Joined through event so this matches the per-organization rows
         // below: a participant whose event was deleted has no gallery left,
@@ -157,16 +172,23 @@ export class AdminService {
           .where('event.deletedAt', 'is', null)
           .select(sql<number>`count(*)::int`.as('value'))
           .as('eventCount'),
+        // Joined through event so deleted events drop out, matching what the
+        // organisation is shown and what quota enforces. Without this an
+        // organisation appears here consuming storage it has already deleted.
         eb
           .selectFrom('asset')
-          .whereRef('asset.orgId', '=', 'organization.id')
+          .innerJoin('event', 'event.id', 'asset.eventId')
+          .whereRef('event.orgId', '=', 'organization.id')
           .where('asset.deletedAt', 'is', null)
+          .where('event.deletedAt', 'is', null)
           .select(sql<number>`count(*)::int`.as('value'))
           .as('assetCount'),
         eb
           .selectFrom('asset')
-          .whereRef('asset.orgId', '=', 'organization.id')
+          .innerJoin('event', 'event.id', 'asset.eventId')
+          .whereRef('event.orgId', '=', 'organization.id')
           .where('asset.deletedAt', 'is', null)
+          .where('event.deletedAt', 'is', null)
           .select(sql<number>`coalesce(sum(file_size), 0)::bigint`.as('value'))
           .as('storageBytes'),
         eb

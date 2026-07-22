@@ -49,5 +49,13 @@
       </div>
       <Button type="submit" fullWidth loading={loading} disabled={loading}>Sign in</Button>
     </form>
+
+    <!-- Reachable without an account: someone deciding whether to sign up
+         should be able to read what we do with their data first. -->
+    <p class="mt-8 text-center text-xs text-gray-500">
+      <a href="/privacy" class="underline">Privacy Policy</a>
+      <span class="mx-1.5">·</span>
+      <a href="/terms" class="underline">Terms &amp; Conditions</a>
+    </p>
   </div>
 </div>

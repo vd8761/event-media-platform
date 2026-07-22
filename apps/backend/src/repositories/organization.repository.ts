@@ -96,6 +96,10 @@ export class OrganizationRepository {
           .innerJoin('event', 'event.id', 'asset.eventId')
           .whereRef('event.orgId', '=', 'organization.id')
           .where('asset.deletedAt', 'is', null)
+          // Same rule as getOrgStorageBytes. The admin table has to show the
+          // organisation the same number the organisation sees, or a support
+          // conversation starts with the two sides reading different figures.
+          .where('event.deletedAt', 'is', null)
           .select(sql<string>`coalesce(sum(asset.file_size), 0)`.as('bytes'))
           .as('usedBytes'),
         eb
