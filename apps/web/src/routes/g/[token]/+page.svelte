@@ -407,3 +407,13 @@
     onIndexChange={(index) => (viewerIndex = index)}
   />
 {/if}
+
+<!-- Guests are the people whose faces are processed here, and they never see
+     the app shell. This is the only place they can find out what happens to
+     their selfie and how to have it deleted. -->
+<footer class="px-5 py-8 text-center text-xs text-gray-500">
+  <a href="/privacy" class="hover:text-primary underline">Privacy Policy</a>
+  <span class="mx-2">·</span>
+  <a href="/terms" class="hover:text-primary underline">Terms &amp; Conditions</a>
+  <p class="mt-2">Your selfie is deleted 30 days after the event ends.</p>
+</footer>

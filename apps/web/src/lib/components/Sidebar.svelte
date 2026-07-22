@@ -194,5 +194,14 @@
         <Icon icon={mdiLogout} size="1.25rem" />
       </button>
     </div>
+
+    <!-- Quiet, but present on every screen of the app. Someone who wants to
+         check what happens to their guests' face data should not have to sign
+         out to find the policy. -->
+    <p class="pe-1 text-[0.7rem] text-gray-400">
+      <a href="/privacy" class="hover:text-primary hover:underline">Privacy</a>
+      <span class="mx-1">·</span>
+      <a href="/terms" class="hover:text-primary hover:underline">Terms</a>
+    </p>
   </div>
 </nav>
