@@ -2,8 +2,9 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Kysely, sql } from 'kysely';
 import { InjectKysely } from 'nestjs-kysely';
 import { CreateEventDto, UpdateEventDto } from 'src/dtos/event.dto';
-import { AssetStatus, AssetType, JobName } from 'src/enum';
+import { AssetStatus, AssetType, AuditCategory, AuditLevel, JobName } from 'src/enum';
 import { EventRepository } from 'src/repositories/event.repository';
+import { AuditLogService } from 'src/services/audit-log.service';
 import { QuotaService } from 'src/services/quota.service';
 import { JobRepository } from 'src/repositories/job.repository';
 import { DB, EventRow } from 'src/schema';
@@ -13,6 +14,7 @@ import { StorageKeys } from 'src/utils/storage-keys';
 export class EventService {
   constructor(
     @InjectKysely() private db: Kysely<DB>,
+    private auditLogService: AuditLogService,
     private eventRepository: EventRepository,
     private jobRepository: JobRepository,
     private quotaService: QuotaService,
@@ -136,13 +138,36 @@ export class EventService {
     return { queued: rows.length };
   }
 
-  async remove(orgId: string, eventId: string): Promise<void> {
-    await this.get(orgId, eventId);
-    await this.eventRepository.softDelete(orgId, eventId);
-    // cascade R2 deletion by prefix (docs/plan/04-storage-r2.md §6)
+  // Irreversible, and honest about it: the rows go with the media rather than
+  // lingering as a soft delete that suggested a recovery window the R2 prefix
+  // delete had already made impossible.
+  //
+  // `confirmation` must be the event's own slug. The caller has to name the
+  // thing it is destroying, which is the difference between a mis-click and a
+  // decision — and it is enforced here rather than only in the UI, so an API
+  // client cannot delete an event more easily than a person can.
+  async remove(orgId: string, eventId: string, confirmation: string): Promise<void> {
+    const event = await this.get(orgId, eventId);
+    if (confirmation !== event.slug) {
+      throw new BadRequestException(`Type the event's slug (${event.slug}) to confirm deletion`);
+    }
+
+    // Storage first. If the prefix delete fails the rows are still here and the
+    // operation can be retried; doing it the other way round would leave
+    // orphaned objects in R2 that nothing points at any more.
     await this.jobRepository.queue({
       name: JobName.CleanupPrefix,
       data: { prefix: StorageKeys.eventPrefix(orgId, eventId) },
+    });
+    await this.eventRepository.hardDelete(orgId, eventId);
+
+    await this.auditLogService.record({
+      category: AuditCategory.Event,
+      action: 'event.delete',
+      level: AuditLevel.Warning,
+      message: `Event "${event.name}" deleted permanently`,
+      orgId,
+      detail: { eventId, slug: event.slug },
     });
   }
 }

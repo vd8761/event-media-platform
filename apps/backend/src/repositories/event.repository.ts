@@ -198,6 +198,17 @@ export class EventRepository {
       .executeTakeFirstOrThrow();
   }
 
+  // Hard delete. Assets, people, participants and imports all cascade from
+  // event, so this clears the whole tree in one statement.
+  //
+  // Deliberately not a soft delete: the media is destroyed from R2 the moment
+  // an event is deleted, so a row lingering behind it described a recovery
+  // that was never possible. Keeping it only made "deleted" mean two different
+  // things depending on which table you looked at.
+  async hardDelete(orgId: string, id: string): Promise<void> {
+    await this.db.deleteFrom('event').where('id', '=', id).where('orgId', '=', orgId).execute();
+  }
+
   async softDelete(orgId: string, id: string): Promise<void> {
     await this.db
       .updateTable('event')

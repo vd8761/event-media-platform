@@ -69,3 +69,12 @@ export class SetCoverDto extends createZodDto(
     assetId: z.string().uuid().nullable(),
   }),
 ) {}
+
+// Deleting an event is irreversible and destroys its media. The caller must
+// echo back the event's own slug, so an automated client cannot delete one
+// with a bare request the way a mis-click could.
+export class DeleteEventDto extends createZodDto(
+  z.object({
+    confirmation: z.string().min(1),
+  }),
+) {}
