@@ -3,12 +3,14 @@
   import { Alert, Badge, Button, Heading, LoadingSpinner, Modal, ModalBody, ModalFooter } from '@immich/ui';
   import { mdiChevronRight, mdiCloudDownloadOutline, mdiFolderOutline } from '@mdi/js';
   import { Icon } from '@immich/ui';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { DateTime } from 'luxon';
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
 
   let { data } = $props();
-  const eventId = data.event.id;
-  const orgId = data.event.orgId;
+  // Derived, not captured — this component is reused across event switches.
+  const eventId = $derived(data.event.id);
+  const orgId = $derived(data.event.orgId);
 
   let imports = $state<ImportProgress[]>([]);
   let accounts = $state<CloudAccountItem[]>([]);
@@ -113,7 +115,20 @@
     expanded = job.id;
   }
 
-  onMount(() => void refresh());
+  // Keyed on the event so switching reloads its imports rather than leaving the
+  // previous event's job list on screen.
+  $effect(() => {
+    void eventId;
+    imports = [];
+    accounts = [];
+    loading = true;
+    expanded = null;
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = undefined;
+    }
+    void refresh();
+  });
   onDestroy(() => pollTimer && clearInterval(pollTimer));
 </script>
 
@@ -127,10 +142,11 @@
 {#if loading}
   <div class="flex justify-center py-16"><LoadingSpinner size="giant" /></div>
 {:else if imports.length === 0}
-  <div class="md-surface md-body-large border-dashed p-10 text-center text-gray-500 sm:p-16">
-    <Icon icon={mdiCloudDownloadOutline} size="2.5rem" class="mx-auto mb-3 text-gray-300" />
-    No imports yet.
-  </div>
+  <EmptyState
+    icon={mdiCloudDownloadOutline}
+    title="No imports yet"
+    description="Pull photos straight from a Google Drive or OneDrive folder."
+  />
 {:else}
   <div class="space-y-3">
     {#each imports as job (job.id)}

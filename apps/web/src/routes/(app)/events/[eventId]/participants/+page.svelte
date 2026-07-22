@@ -4,10 +4,10 @@
   import { mdiAccountGroup, mdiDelete, mdiEmailSync } from '@mdi/js';
   import { Icon } from '@immich/ui';
   import { DateTime } from 'luxon';
-  import { onMount } from 'svelte';
 
   let { data } = $props();
-  const eventId = data.event.id;
+  // Derived, not captured — this component is reused across event switches.
+  const eventId = $derived(data.event.id);
 
   let participants = $state<ParticipantItem[]>([]);
   let loading = $state(true);
@@ -36,7 +36,22 @@
     await refresh();
   }
 
-  onMount(() => void refresh());
+  // Reload whenever the event changes, not just on first mount.
+  $effect(() => {
+    const id = eventId;
+    let cancelled = false;
+    participants = [];
+    loading = true;
+    void api.participants.list(id).then((rows) => {
+      if (!cancelled) {
+        participants = rows;
+        loading = false;
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
 </script>
 
 <svelte:head><title>Participants — {data.event.name}</title></svelte:head>

@@ -72,6 +72,27 @@ export class PersonRepository {
   // event so the org-wide People page can label and link. Only people with a
   // portrait and at least one photo are worth showing here — the People grid is
   // a browsing surface, not the per-event cluster-review screen.
+  // How many *named* people an organisation has. Drives whether the sidebar
+  // offers People at all: an unnamed cluster is a face the system found, not a
+  // person anyone can look up, so a nav entry leading to a wall of anonymous
+  // thumbnails is a dead end. Mirrors getAllForOrg's visibility filters so the
+  // count can never disagree with what the page would actually render.
+  async countNamedForOrg(orgId: string): Promise<number> {
+    const row = await this.db
+      .selectFrom('person')
+      .innerJoin('event', 'event.id', 'person.eventId')
+      .select((eb) => eb.fn.countAll<string>().as('count'))
+      .where('person.orgId', '=', orgId)
+      .where('person.isHidden', '=', false)
+      .where('person.thumbnailKey', 'is not', null)
+      .where('person.name', 'is not', null)
+      .where('person.name', '!=', '')
+      .where('event.deletedAt', 'is', null)
+      .executeTakeFirst();
+
+    return Number(row?.count ?? 0);
+  }
+
   getAllForOrg(orgId: string): Promise<OrgPerson[]> {
     return this.db
       .selectFrom('person')

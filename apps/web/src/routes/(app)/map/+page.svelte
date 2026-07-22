@@ -4,8 +4,10 @@
   // $lib/components/Map.svelte for what changed and why).
   import { api, type MapMarker } from '$lib/api';
   import MapComponent from '$lib/components/Map.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { shellStore } from '$lib/shell.svelte';
   import { Heading, LoadingSpinner } from '@immich/ui';
+  import { mdiMapMarkerOffOutline } from '@mdi/js';
 
   let markers = $state<MapMarker[]>([]);
   let loading = $state(true);
@@ -33,14 +35,12 @@
       <LoadingSpinner size="giant" />
     </div>
   {:else if markers.length === 0}
-    <div class="flex h-full items-center justify-center p-10 text-center">
-      <div>
-        <Heading size="medium" class="mb-1">No locations yet</Heading>
-        <p class="md-body-medium text-gray-500">
-          Photos with location data show up here as pins once your events are geotagged.
-        </p>
-      </div>
-    </div>
+    <EmptyState
+      fillHeight
+      icon={mdiMapMarkerOffOutline}
+      title="No locations yet"
+      description="Photos with location data show up here as pins once your events are geotagged."
+    />
   {:else}
     <MapComponent {markers} />
   {/if}

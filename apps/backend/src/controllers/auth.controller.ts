@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Post, Put, Res } from '@nestjs/common'
 import { ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { Response } from 'express';
-import { AdminSignupDto, AuthDto, ChangePasswordDto, LoginDetails, LoginDto, LoginResponseDto } from 'src/dtos/auth.dto';
+import { AdminSignupDto, AuthDto, ChangePasswordDto, LoginDetails, LoginDto, LoginResponseDto, ResetPasswordDto } from 'src/dtos/auth.dto';
 import { Auth, Authenticated, GetLoginDetails } from 'src/middleware/auth.guard';
 import { ConfigRepository } from 'src/repositories/config.repository';
 import { OrganizationRepository } from 'src/repositories/organization.repository';
@@ -70,6 +70,17 @@ export class AuthController {
       isSuperAdmin: user.isSuperAdmin,
       organizations,
     };
+  }
+
+  // Unauthenticated by necessity — the account holder cannot sign in, which is
+  // the situation a reset exists for. Throttled hard: the token is the only
+  // thing standing between a caller and an account, so this is the one endpoint
+  // where brute force would pay off.
+  @Post('reset-password')
+  @HttpCode(204)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  resetPassword(@Body() dto: ResetPasswordDto): Promise<void> {
+    return this.authService.resetPassword(dto);
   }
 
   @Put('password')

@@ -13,10 +13,11 @@
     ModalFooter,
   } from '@immich/ui';
   import { mdiAccountOff, mdiCheck, mdiEye, mdiEyeOff, mdiMerge, mdiPencil } from '@mdi/js';
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
 
   let { data } = $props();
-  const eventId = data.event.id;
+  // Derived, not captured — this component is reused across event switches.
+  const eventId = $derived(data.event.id);
   const canManage = $derived(
     data.me.isSuperAdmin ||
       ['owner', 'admin'].includes(data.me.organizations.find((org) => org.id === data.event.orgId)?.role ?? ''),
@@ -202,8 +203,31 @@
     await refresh();
   }
 
-  onMount(() => {
-    void refresh().then(() => loadPhotos());
+  // Keyed on the event so switching reloads the clusters. Without this the
+  // previous event's people stay on screen — and merging or renaming from that
+  // stale list would act on the wrong event's clusters.
+  $effect(() => {
+    const id = eventId;
+    people = [];
+    processing = null;
+    loading = true;
+    picked = new Set();
+    merging = false;
+    renameTarget = null;
+    if (timer) {
+      clearInterval(timer);
+      timer = undefined;
+    }
+
+    let cancelled = false;
+    void refresh().then(() => {
+      if (!cancelled && id === eventId) {
+        loadPhotos();
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   });
   onDestroy(() => timer && clearInterval(timer));
 </script>

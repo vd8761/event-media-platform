@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { api, ApiError, type Organization } from '$lib/api';
+  import { api, ApiError, type OrgSummary, type Organization } from '$lib/api';
+  import { formatBytes } from '$lib/shell.svelte';
   import { Alert, Badge, Button, Heading, Input, Modal, ModalBody, ModalFooter } from '@immich/ui';
   import { mdiPlus } from '@mdi/js';
   import { DateTime } from 'luxon';
   import { onMount } from 'svelte';
 
-  let orgs = $state<Organization[]>([]);
+  let orgs = $state<OrgSummary[]>([]);
   let showCreate = $state(false);
   let error = $state('');
   let creating = $state(false);
@@ -95,6 +96,39 @@
     }
   }
 
+  // --- password reset ---
+  let resettingId = $state<string | null>(null);
+  let resetNotice = $state('');
+
+  async function resetPassword(org: OrgSummary) {
+    if (!org.owner) {
+      return;
+    }
+    // Spelled out because this is not undoable and locks the customer out
+    // until they act on the email — an accidental click has a real cost at
+    // the other end.
+    if (
+      !confirm(
+        `Reset the password for ${org.owner.email}?\n\n` +
+          `Their current password stops working immediately, they are signed out everywhere, ` +
+          `and a one-time link is emailed to them. You will not see the new password.`,
+      )
+    ) {
+      return;
+    }
+    resettingId = org.owner.id;
+    resetNotice = '';
+    error = '';
+    try {
+      await api.orgs.resetMemberPassword(org.id, org.owner.id);
+      resetNotice = `Reset link sent to ${org.owner.email}.`;
+    } catch (err) {
+      error = err instanceof ApiError ? err.message : 'Could not reset the password';
+    } finally {
+      resettingId = null;
+    }
+  }
+
   async function toggleSuspend(org: Organization) {
     const next = org.status === 'active' ? 'suspended' : 'active';
     if (!confirm(`Set ${org.name} to ${next}?`)) return;
@@ -114,23 +148,47 @@
   <Button leadingIcon={mdiPlus} onclick={openCreate}>New organization</Button>
 </div>
 
+{#if resetNotice}
+  <div class="mb-4"><Alert color="success" title={resetNotice} /></div>
+{/if}
+{#if error && !showCreate}
+  <div class="mb-4"><Alert color="danger" title={error} /></div>
+{/if}
+
 <div class="md-surface overflow-x-auto">
   <table class="w-full min-w-3xl text-sm">
     <thead class="bg-immich-gray text-xs text-gray-500">
       <tr>
-        <th class="px-4 py-3 text-start font-medium">Name</th>
-        <th class="px-4 py-3 text-start font-medium">Slug</th>
+        <th class="px-4 py-3 text-start font-medium">Organisation</th>
+        <th class="px-4 py-3 text-start font-medium">Account holder</th>
         <th class="px-4 py-3 text-start font-medium">Status</th>
         <th class="px-4 py-3 text-start font-medium">Plan</th>
+        <th class="px-4 py-3 text-start font-medium">Storage</th>
+        <th class="px-4 py-3 text-start font-medium">Events</th>
         <th class="px-4 py-3 text-start font-medium">Created</th>
         <th class="px-4 py-3 text-end font-medium">Actions</th>
       </tr>
     </thead>
     <tbody>
       {#each orgs as org (org.id)}
+        {@const storage = org.usage.storage}
+        {@const pct = storage.limitBytes > 0 ? (storage.usedBytes / storage.limitBytes) * 100 : 0}
         <tr class="border-t border-gray-100">
-          <td class="px-4 py-3 font-medium">{org.name}</td>
-          <td class="px-4 py-3 font-mono text-xs text-gray-500">{org.slug}</td>
+          <td class="px-4 py-3">
+            <p class="font-medium">{org.name}</p>
+            <p class="font-mono text-xs text-gray-500">{org.slug}</p>
+          </td>
+          <td class="px-4 py-3">
+            {#if org.owner}
+              <p>{org.owner.name}</p>
+              <p class="text-xs text-gray-500">{org.owner.email}</p>
+            {:else}
+              <!-- Owner account deleted. Worth stating rather than leaving the
+                   cell blank: this org has nobody who can sign in to it, which
+                   is a thing to fix, not a rendering gap. -->
+              <span class="text-xs text-amber-600">No active owner</span>
+            {/if}
+          </td>
           <td class="px-4 py-3">
             <Badge color={org.status === 'active' ? 'success' : 'danger'} size="small">{org.status}</Badge>
           </td>
@@ -142,12 +200,43 @@
               {/if}
             </span>
           </td>
+          <!-- Used-of-allocated with the remainder spelled out. A bare
+               percentage hides the number that actually matters when someone
+               asks for more room. -->
+          <td class="px-4 py-3">
+            <p class="whitespace-nowrap">
+              {formatBytes(storage.usedBytes)} <span class="text-gray-400">/ {formatBytes(storage.limitBytes)}</span>
+            </p>
+            <div class="mt-1 h-1 w-24 overflow-hidden rounded-full bg-gray-200">
+              <div
+                class="h-full rounded-full {pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-primary'}"
+                style="width: {Math.min(100, pct)}%"
+              ></div>
+            </div>
+            <p class="mt-0.5 text-xs text-gray-500">{formatBytes(storage.remainingBytes)} free</p>
+          </td>
+          <td class="px-4 py-3 whitespace-nowrap">
+            {org.usage.events.used} <span class="text-gray-400">/ {org.usage.events.limit}</span>
+            <p class="text-xs text-gray-500">{org.usage.events.remaining} left</p>
+          </td>
           <td class="px-4 py-3 text-gray-500">{DateTime.fromISO(org.createdAt).toLocaleString(DateTime.DATE_MED)}</td>
           <td class="px-4 py-3 text-end">
             <Button size="small" variant="ghost" onclick={() => openPlan(org)}>Plan</Button>
             <Button size="small" variant="ghost" color={org.status === 'active' ? 'danger' : 'primary'} onclick={() => toggleSuspend(org)}>
               {org.status === 'active' ? 'Suspend' : 'Reactivate'}
             </Button>
+            <!-- Only offered when there is an account holder to email — with no
+                 owner there is no inbox to send the link to. -->
+            {#if org.owner}
+              <Button
+                size="small"
+                variant="ghost"
+                disabled={resettingId === org.owner.id}
+                onclick={() => resetPassword(org)}
+              >
+                {resettingId === org.owner.id ? 'Sending…' : 'Reset password'}
+              </Button>
+            {/if}
           </td>
         </tr>
       {/each}

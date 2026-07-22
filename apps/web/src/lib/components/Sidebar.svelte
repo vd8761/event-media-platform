@@ -51,8 +51,16 @@
   <div class="flex flex-1 flex-col gap-1" onclick={onNavigate} role="none">
     {#if hasOrg}
       <NavbarItem title="Photos" href="/photos" icon={mdiImageMultipleOutline} activeIcon={mdiImageMultiple} />
-      <NavbarItem title="Explore" href="/explore" icon={mdiMagnify} />
-      <NavbarItem title="People" href="/people" icon={mdiAccountOutline} activeIcon={mdiAccount} />
+      <!-- Explore and People are hidden until they would lead somewhere.
+           Exploring an empty library and browsing a list of unnamed clusters
+           are both dead ends, and a nav entry that reliably disappoints is
+           worse than one that isn't there yet. Map already worked this way. -->
+      {#if shellStore.hasAssets}
+        <NavbarItem title="Explore" href="/explore" icon={mdiMagnify} />
+      {/if}
+      {#if shellStore.namedPeople > 0}
+        <NavbarItem title="People" href="/people" icon={mdiAccountOutline} activeIcon={mdiAccount} />
+      {/if}
       <NavbarItem title="Map" href="/map" icon={mdiMapOutline} activeIcon={mdiMap} />
 
       <!-- Events: the album-style expandable group. Its rows are covers, so it

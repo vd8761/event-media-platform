@@ -39,6 +39,19 @@ export class SessionRepository {
     await this.db.deleteFrom('session').where('id', '=', id).execute();
   }
 
+  // Every session for a user except, optionally, the one making the request.
+  // Used after a password change: the point of changing a password is usually
+  // that someone else may know the old one, and leaving their existing sessions
+  // alive means the change does not actually lock them out.
+  async deleteForUser(userId: string, exceptSessionId?: string): Promise<number> {
+    let query = this.db.deleteFrom('session').where('userId', '=', userId);
+    if (exceptSessionId) {
+      query = query.where('id', '!=', exceptSessionId);
+    }
+    const result = await query.executeTakeFirst();
+    return Number(result.numDeletedRows);
+  }
+
   async deleteExpired(): Promise<number> {
     const result = await this.db
       .deleteFrom('session')

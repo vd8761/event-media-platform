@@ -12,7 +12,8 @@
   import { mdiArrowLeft, mdiCheckCircleOutline, mdiEye, mdiEyeOff, mdiImageOff, mdiPencil } from '@mdi/js';
 
   let { data } = $props();
-  const eventId = data.event.id;
+  // Derived, not captured — this component is reused across event switches.
+  const eventId = $derived(data.event.id);
   const personId = $derived(page.params.personId!);
   const canManage = $derived(
     data.me.isSuperAdmin ||

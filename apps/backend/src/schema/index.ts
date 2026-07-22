@@ -54,6 +54,18 @@ export interface SessionTable {
   updatedAt: GeneratedTimestamp;
 }
 
+// Single-use password reset tokens. Only the SHA-256 hash is stored, so the
+// raw token exists exactly once — in the email that carries it.
+export interface PasswordResetTokenTable {
+  id: Generated<string>;
+  userId: string;
+  token: Buffer;
+  expiresAt: Timestamp;
+  usedAt: Timestamp | null;
+  createdBy: string | null;
+  createdAt: CreatedAt;
+}
+
 export interface OrganizationTable {
   id: Generated<string>;
   name: string;
@@ -364,6 +376,7 @@ export interface SystemConfigTable {
 export interface DB {
   user: UserTable;
   session: SessionTable;
+  passwordResetToken: PasswordResetTokenTable;
   organization: OrganizationTable;
   organizationUser: OrganizationUserTable;
   event: EventTable;

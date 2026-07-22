@@ -1,7 +1,8 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { AuthDto } from 'src/dtos/auth.dto';
 import { AddMemberDto, UpdateMemberDto } from 'src/dtos/org.dto';
-import { Authenticated } from 'src/middleware/auth.guard';
+import { Auth, Authenticated } from 'src/middleware/auth.guard';
 import { OrgRole } from 'src/enum';
 import { OrganizationService } from 'src/services/organization.service';
 import { PersonService } from 'src/services/person.service';
@@ -87,6 +88,17 @@ export class OrganizationController {
   @Authenticated({ orgRole: OrgRole.Owner, allowSuperAdmin: true })
   updateMember(@Param('orgId') orgId: string, @Param('userId') userId: string, @Body() dto: UpdateMemberDto) {
     return this.organizationService.updateMember(orgId, userId, dto);
+  }
+
+  // Super admin only, deliberately not owner-accessible. An org owner who wants
+  // a new password can change their own; this exists for the case where they
+  // have lost access entirely, and it returns nothing — the generated password
+  // goes to the account holder's inbox, never to the caller.
+  @Post(':orgId/members/:userId/reset-password')
+  @HttpCode(204)
+  @Authenticated({ superAdmin: true })
+  resetMemberPassword(@Param('orgId') orgId: string, @Param('userId') userId: string, @Auth() auth: AuthDto) {
+    return this.organizationService.resetMemberPassword(orgId, userId, auth.user!.id);
   }
 
   @Delete(':orgId/members/:userId')

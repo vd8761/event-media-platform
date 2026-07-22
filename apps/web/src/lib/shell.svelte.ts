@@ -28,6 +28,15 @@ class ShellStore {
   get storage() {
     return this.#shell?.storage ?? { bytes: 0, assets: 0 };
   }
+  // Nav gating reads these. Both default to 0 while the shell is still
+  // loading, which hides the conditional entries — better than showing a link
+  // for a second and snatching it away as the real numbers arrive.
+  get hasAssets() {
+    return (this.#shell?.storage.assets ?? 0) > 0;
+  }
+  get namedPeople() {
+    return this.#shell?.namedPeople ?? 0;
+  }
   get notifications() {
     return this.#notifications;
   }

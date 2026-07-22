@@ -14,6 +14,13 @@
 
   let { events, onOpen }: Props = $props();
 
+  // A slideshow needs enough material to be worth starting. Below this an
+  // event is a handful of photos the organiser has already seen — the strip
+  // would be advertising a three-slide "memory". Events still appear
+  // everywhere else; this only governs the memories rail.
+  const MIN_ASSETS_FOR_MEMORIES = 5;
+  const shown = $derived(events.filter((event) => event.assetCount > MIN_ASSETS_FOR_MEMORIES));
+
   let rail = $state<HTMLElement | null>(null);
 
   function scrollBy(direction: 1 | -1) {
@@ -21,7 +28,7 @@
   }
 </script>
 
-{#if events.length > 0}
+{#if shown.length > 0}
   <section aria-label="Events" class="group/strip relative -mx-1">
     <!-- edge scroll buttons, revealed on hover (desktop only) -->
     <button
@@ -45,7 +52,7 @@
       bind:this={rail}
       class="flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-      {#each events as event (event.id)}
+      {#each shown as event (event.id)}
         <button
           type="button"
           onclick={() => onOpen(event.id)}
