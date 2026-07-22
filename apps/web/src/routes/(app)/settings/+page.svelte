@@ -116,4 +116,16 @@
       </div>
     </form>
   </section>
+
+  <section class="md-surface mt-6 p-5">
+    <Heading size="small" class="mb-3">Legal</Heading>
+    <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+      <a href="/privacy" class="text-primary underline">Privacy Policy</a>
+      <a href="/terms" class="text-primary underline">Terms &amp; Conditions</a>
+    </div>
+    <p class="mt-3 text-xs text-gray-500">
+      EventLens is operated by Touchmark Descience Pvt. Ltd. For data requests or complaints, contact
+      <a href="mailto:info@touchmarkdes.com" class="underline">info@touchmarkdes.com</a>.
+    </p>
+  </section>
 </div>
