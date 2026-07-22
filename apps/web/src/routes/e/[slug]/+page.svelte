@@ -314,7 +314,8 @@
 
           <p class="md-label-medium text-center leading-relaxed text-gray-400">
             Your photos are used only to find you at this event and are deleted after the event ends. You'll receive a
-            private gallery link by email.
+            private gallery link by email. Read our <a href="/privacy" class="underline">Privacy Policy</a> for what we
+            do with your selfie and how to have it removed.
           </p>
         </form>
       {/if}
