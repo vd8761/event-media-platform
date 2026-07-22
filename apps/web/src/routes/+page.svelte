@@ -31,7 +31,7 @@
     {
       icon: mdiCloudUploadOutline,
       title: 'Upload once',
-      body: 'Drop in the whole shoot, or import a folder straight from Google Drive or OneDrive. Thousands of frames, one go.',
+      body: 'Drop in everything your photographers hand over, or import a folder straight from Google Drive or OneDrive. Thousands of photos, one go.',
     },
     {
       icon: mdiFaceRecognition,
@@ -49,7 +49,7 @@
     {
       icon: mdiImageMultipleOutline,
       title: 'Every event in one timeline',
-      body: 'Your whole organisation’s work, newest first, with a scrubber that moves through months in one gesture.',
+      body: 'Every event you have run, newest first, with a scrubber that moves through months in one gesture.',
     },
     {
       icon: mdiAccountGroupOutline,
@@ -59,7 +59,7 @@
     {
       icon: mdiMapMarkerOutline,
       title: 'Where it happened',
-      body: 'Geotagged frames land on a map, so a venue’s worth of coverage is one click rather than a search.',
+      body: 'Geotagged photos land on a map, so a venue’s worth of coverage is one click rather than a search.',
     },
     {
       icon: mdiLockOutline,
@@ -70,10 +70,10 @@
 </script>
 
 <svelte:head>
-  <title>EventLens — event photography, delivered to everyone in it</title>
+  <title>EventLens — event photos, delivered to everyone in them</title>
   <meta
     name="description"
-    content="Upload the whole shoot once. EventLens finds every guest and sends each of them a private gallery of just their photos."
+    content="Event organisers upload the photos once. EventLens finds every guest and sends each of them a private gallery of just their own."
   />
 </svelte:head>
 
@@ -87,9 +87,9 @@
       </a>
 
       <div class="hidden items-center gap-1 md:flex">
-        <a href="#how" class="nav-link">How it works</a>
-        <a href="#features" class="nav-link">Features</a>
-        <a href="#privacy" class="nav-link">Privacy</a>
+        <a href="#how" class="nav-link text-gray-600">How it works</a>
+        <a href="#features" class="nav-link text-gray-600">Features</a>
+        <a href="#privacy" class="nav-link text-gray-600">Privacy</a>
         <a href="/login" class="cta ms-2">Sign in</a>
       </div>
 
@@ -125,7 +125,7 @@
       <Reveal>
         <p class="mb-5 inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-1.5 text-sm font-medium text-primary">
           <Icon icon={mdiFaceRecognition} size="1.1rem" />
-          Face matching for event photographers
+          Face matching for event organisers
         </p>
       </Reveal>
 
@@ -138,8 +138,8 @@
 
       <Reveal delay={160}>
         <p class="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-gray-600 dark:text-gray-300">
-          Upload the whole shoot once. EventLens finds everyone in it and sends each guest a private gallery of just the
-          frames they appear in.
+          Organising the event is enough work already. Upload the photos once and EventLens finds everyone in them,
+          sending each guest a private gallery of just the shots they appear in.
         </p>
       </Reveal>
 
@@ -278,17 +278,17 @@
           <span class="text-primary text-lg font-semibold">EventLens</span>
         </a>
         <p class="mt-3 max-w-xs text-sm text-gray-500">
-          Event photography, delivered to everyone in it.
+          Event photos, delivered to everyone in them.
         </p>
       </div>
 
       <div class="flex flex-col gap-2.5 text-sm sm:items-end">
-        <a href="/privacy" class="footer-link">Privacy Policy</a>
-        <a href="/terms" class="footer-link">Terms &amp; Conditions</a>
-        <a href="https://touchmarkdes.com" class="footer-link" rel="noopener noreferrer" target="_blank">
+        <a href="/privacy" class="footer-link text-gray-600">Privacy Policy</a>
+        <a href="/terms" class="footer-link text-gray-600">Terms &amp; Conditions</a>
+        <a href="https://touchmarkdes.com" class="footer-link text-gray-600" rel="noopener noreferrer" target="_blank">
           Touchmark Descience
         </a>
-        <a href="mailto:info@touchmarkdes.com" class="footer-link">info@touchmarkdes.com</a>
+        <a href="mailto:info@touchmarkdes.com" class="footer-link text-gray-600">info@touchmarkdes.com</a>
       </div>
     </div>
 
@@ -305,25 +305,35 @@
   .landing {
     background: rgb(var(--immich-bg));
     color: rgb(var(--immich-fg));
+
+    /* MD3 "on-primary": the ink that sits on a filled primary surface.
+       `--immich-primary` is repointed under .dark to a *pale* blue, so a
+       hardcoded white here is unreadable in dark mode — which is exactly what
+       it was. This has to flip with the surface it sits on. */
+    --on-primary: 255 255 255;
+  }
+
+  :global(.dark) .landing {
+    /* Near-black rather than pure black: against the pale dark-mode primary
+       this keeps well past the 4.5:1 contrast floor without the harshness of
+       #000 on a light tint. */
+    --on-primary: 16 18 27;
   }
 
   /* --- navigation --- */
+  /* No hardcoded grey here. app.css redefines the Tailwind neutral ramp under
+     `.dark`, so `text-gray-600` in the markup resolves correctly in both
+     themes — a literal rgb() would stay dark-on-dark, which is exactly the bug
+     this replaced. */
   .nav-link {
     border-radius: 9999px;
     padding: 0.55rem 0.9rem;
     font-size: 0.925rem;
     font-weight: 500;
-    color: rgb(75 85 99);
     transition: background-color 0.2s cubic-bezier(0.05, 0.7, 0.1, 1);
   }
   .nav-link:hover {
-    background: rgb(0 0 0 / 0.05);
-  }
-  :global(.dark) .nav-link {
-    color: rgb(209 213 219);
-  }
-  :global(.dark) .nav-link:hover {
-    background: rgb(255 255 255 / 0.08);
+    background: rgb(var(--immich-fg) / 0.07);
   }
 
   .mobile-link {
@@ -334,7 +344,7 @@
     font-weight: 500;
   }
   .mobile-link:hover {
-    background: rgb(0 0 0 / 0.05);
+    background: rgb(var(--immich-fg) / 0.07);
   }
 
   /* --- buttons (MD3 filled / tonal, 48dp floor) --- */
@@ -348,7 +358,7 @@
     padding: 0 1.4rem;
     font-size: 0.925rem;
     font-weight: 600;
-    color: white;
+    color: rgb(var(--on-primary));
     transition:
       transform 0.2s cubic-bezier(0.05, 0.7, 0.1, 1),
       box-shadow 0.2s cubic-bezier(0.05, 0.7, 0.1, 1),
@@ -378,11 +388,8 @@
       transform 0.2s cubic-bezier(0.05, 0.7, 0.1, 1);
   }
   .cta-ghost:hover {
-    background: rgb(0 0 0 / 0.04);
+    background: rgb(var(--immich-fg) / 0.06);
     transform: translateY(-1px);
-  }
-  :global(.dark) .cta-ghost:hover {
-    background: rgb(255 255 255 / 0.06);
   }
 
   .cta-lg {
@@ -528,7 +535,7 @@
     background: rgb(var(--immich-primary));
     padding: 0.65rem 1.15rem;
     font-size: 0.875rem;
-    color: white;
+    color: rgb(var(--on-primary));
     white-space: nowrap;
     box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
     animation: float 4.5s ease-in-out infinite;
@@ -587,15 +594,11 @@
   }
 
   .footer-link {
-    color: rgb(75 85 99);
     transition: color 0.2s;
   }
   .footer-link:hover {
     color: rgb(var(--immich-primary));
     text-decoration: underline;
-  }
-  :global(.dark) .footer-link {
-    color: rgb(156 163 175);
   }
 
   /* Anchor links should not slam the section under the sticky header. */
