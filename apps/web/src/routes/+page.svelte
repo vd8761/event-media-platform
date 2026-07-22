@@ -8,8 +8,9 @@
   // type scale already defined in app.css, and emphasised-decelerate easing on
   // every transition.
   //
-  // Everything here is CSS and SVG. No illustration assets, no animation
-  // library, nothing that has to be downloaded before the page means anything.
+  // All motion is CSS — no animation library, nothing that has to be
+  // downloaded before the page means anything. The only assets are the hero
+  // mosaic's fifteen portraits, which are WebP and lazy below the first row.
   import Logo from '$lib/components/Logo.svelte';
   import Reveal from '$lib/components/Reveal.svelte';
   import { Icon } from '@immich/ui';
@@ -26,6 +27,24 @@
   } from '@mdi/js';
 
   let menuOpen = $state(false);
+
+  // The hero mosaic. Generated portraits rather than photographs of real
+  // people — a product about consent should not put someone's face on its own
+  // front page without asking them.
+  //
+  // Served from /static as 400px WebP (the tiles render at ~160px CSS, so this
+  // covers 2x displays with headroom). The originals were 1254px PNGs at ~2MB
+  // each; at 30MB the hero would have cost more than the rest of the page
+  // several times over.
+  const TILES = [
+    'a1', 'a2', 'a3', 'a4', 'a5',
+    'b1', 'b2', 'b3', 'b4', 'b5',
+    'c1', 'c2', 'c3', 'c4', 'c5',
+  ];
+
+  // Which tiles the imagined guest was matched in. Fixed rather than random so
+  // the ring animation lands on the same faces on every load.
+  const MATCHED = new Set([1, 4, 7, 9, 12]);
 
   const steps = [
     {
@@ -158,14 +177,17 @@
       <div class="relative mx-auto mt-16 max-w-4xl">
         <div class="mosaic md-surface p-3 shadow-xl sm:p-4">
           <div class="grid grid-cols-3 gap-2.5 sm:grid-cols-5 sm:gap-3">
-            {#each Array.from({ length: 15 }, (_, index) => index) as index (index)}
-              <!-- The "matched" tiles are the ones a given guest appears in. -->
-              {@const matched = [1, 4, 7, 9, 12].includes(index)}
-              <div
-                class="tile {matched ? 'tile-matched' : ''}"
-                style="--tile-index: {index}; --tile-hue: {(index * 37) % 360};"
-                aria-hidden="true"
-              >
+            {#each TILES as tile, index (tile)}
+              {@const matched = MATCHED.has(index)}
+              <div class="tile {matched ? 'tile-matched' : ''}" style="--tile-index: {index};" aria-hidden="true">
+                <img
+                  src="/landing/{tile}.webp"
+                  alt=""
+                  width="400"
+                  height="400"
+                  loading={index < 5 ? 'eager' : 'lazy'}
+                  decoding="async"
+                />
                 {#if matched}
                   <span class="tile-ring"></span>
                 {/if}
@@ -471,23 +493,20 @@
     aspect-ratio: 1;
     overflow: hidden;
     border-radius: 0.85rem;
-    /* Stand-in imagery generated from a hue per tile, so the page ships no
-       photographs of real people — which would be an odd thing for a product
-       about consent to do without permission. */
-    background: linear-gradient(
-      145deg,
-      hsl(var(--tile-hue) 45% 82%),
-      hsl(calc(var(--tile-hue) + 30) 50% 70%)
-    );
+    /* Holds the tile's shape before its image decodes, so the mosaic does not
+       assemble out of blank gaps on a slow connection. */
+    background: rgb(var(--immich-fg) / 0.06);
     animation: tile-in 0.6s cubic-bezier(0.05, 0.7, 0.1, 1) backwards;
     animation-delay: calc(var(--tile-index) * 45ms);
   }
-  :global(.dark) .tile {
-    background: linear-gradient(
-      145deg,
-      hsl(var(--tile-hue) 30% 32%),
-      hsl(calc(var(--tile-hue) + 30) 35% 24%)
-    );
+
+  .tile img {
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+    /* width/height are set on the element so the box is reserved before the
+       image lands; object-fit does the cropping. */
+    display: block;
   }
 
   @keyframes tile-in {
