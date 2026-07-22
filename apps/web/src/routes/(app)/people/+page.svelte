@@ -5,8 +5,10 @@
   // page where naming, merging and cover-picking already live.
   import { goto } from '$app/navigation';
   import { api, type OrgPerson } from '$lib/api';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { shellStore } from '$lib/shell.svelte';
   import { Heading, LoadingSpinner } from '@immich/ui';
+  import { mdiAccountOutline } from '@mdi/js';
 
   let people = $state<OrgPerson[]>([]);
   let loading = $state(true);
@@ -101,12 +103,11 @@
 {#if loading}
   <div class="flex justify-center py-20"><LoadingSpinner size="giant" /></div>
 {:else if people.length === 0}
-  <div class="md-surface p-10 text-center">
-    <p class="md-title-medium mb-1">No people yet</p>
-    <p class="md-body-medium text-gray-500">
-      As photos are processed, everyone recognised across your events appears here.
-    </p>
-  </div>
+  <EmptyState
+    icon={mdiAccountOutline}
+    title="No people yet"
+    description="As photos are processed, everyone recognised across your events appears here."
+  />
 {:else}
   {#each groups as group (group.eventId)}
     <section class="mb-8">

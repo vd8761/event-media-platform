@@ -29,7 +29,7 @@ export class AdminController {
   @Get('organizations')
   @Authenticated({ superAdmin: true })
   listOrganizations() {
-    return this.organizationService.list();
+    return this.organizationService.listWithUsage();
   }
 
   @Post('organizations')

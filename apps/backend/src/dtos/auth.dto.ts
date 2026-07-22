@@ -25,6 +25,15 @@ export class ChangePasswordDto extends createZodDto(
   }),
 ) {}
 
+// Redeeming a reset link. Unauthenticated by necessity — the whole point is
+// that the account holder cannot sign in.
+export class ResetPasswordDto extends createZodDto(
+  z.object({
+    token: z.string().min(1),
+    newPassword: z.string().min(8),
+  }),
+) {}
+
 // Runtime auth context attached to the request by the AuthGuard.
 export interface AuthDto {
   user?: User;

@@ -12,6 +12,7 @@
   import { Icon, IconButton } from '@immich/ui';
   import {
     mdiBellBadge,
+    mdiAccountCogOutline,
     mdiChartBoxOutline,
     mdiBellOutline,
     mdiHelpCircleOutline,
@@ -86,10 +87,18 @@
       </a>
     </div>
 
-    <div class="flex items-center justify-between gap-4 pe-3 sm:pe-6 lg:gap-8">
+    <div class="flex flex-1 items-center justify-between gap-4 pe-3 sm:pe-6 lg:gap-8">
       <!-- Search. Context search is out of scope for now; this filters by name
            and hands off to the search route. -->
-      <form onsubmit={submitSearch} class="hidden w-full max-w-5xl flex-1 sm:block">
+      <!-- Centred rather than stretched: `mx-auto` on a capped width keeps the
+           field in the middle of the bar instead of growing to fill whatever
+           space the action icons leave over. Hidden entirely for a super
+           admin — search covers events, photos and people, none of which a
+           super admin can see, so it could only ever return nothing. -->
+      <form
+        onsubmit={submitSearch}
+        class="mx-auto hidden w-full max-w-2xl flex-1 sm:block {me.isSuperAdmin ? 'sm:hidden' : ''}"
+      >
         <div class="relative flex items-center">
           <span class="pointer-events-none absolute start-4 text-gray-500">
             <Icon icon={mdiMagnify} size="1.25rem" />
@@ -118,27 +127,35 @@
       </form>
 
       <section class="flex w-full items-center justify-end gap-1 sm:w-auto md:gap-2">
-        <IconButton
-          icon={mdiMagnify}
-          aria-label="Search"
-          shape="round"
-          variant="ghost"
-          color="secondary"
-          size="medium"
-          onclick={() => goto('/search')}
-          class="sm:hidden"
-        />
+        <!-- Phone-width equivalent of the search field, and hidden from a
+             super admin for the same reason. -->
+        {#if !me.isSuperAdmin}
+          <IconButton
+            icon={mdiMagnify}
+            aria-label="Search"
+            shape="round"
+            variant="ghost"
+            color="secondary"
+            size="medium"
+            onclick={() => goto('/search')}
+            class="sm:hidden"
+          />
+        {/if}
 
-        <IconButton
-          icon={mdiTrayArrowUp}
-          aria-label="Upload"
-          title="Upload"
-          shape="round"
-          variant="ghost"
-          color="secondary"
-          size="medium"
-          onclick={() => goto('/events')}
-        />
+        <!-- Same reasoning: a super admin has no events to upload into, so this
+             would drop them on a page with nothing on it. -->
+        {#if !me.isSuperAdmin}
+          <IconButton
+            icon={mdiTrayArrowUp}
+            aria-label="Upload"
+            title="Upload"
+            shape="round"
+            variant="ghost"
+            color="secondary"
+            size="medium"
+            onclick={() => goto('/events')}
+          />
+        {/if}
 
         <ThemeSwitcher compact />
 
@@ -245,13 +262,26 @@
               <div class="my-1.5 border-t border-gray-200"></div>
 
               <a
-                href="/settings/usage"
+                href="/settings"
                 onclick={() => (panel = 'none')}
                 class="hover:bg-subtle flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm text-gray-700 transition"
               >
-                <Icon icon={mdiChartBoxOutline} size="1.25rem" />
-                Account stats
+                <Icon icon={mdiAccountCogOutline} size="1.25rem" />
+                Account settings
               </a>
+              <!-- Account stats is organisation-facing: a super admin has no
+                   storage or photos of their own, so the numbers it shows would
+                   all be zero. -->
+              {#if !me.isSuperAdmin}
+                <a
+                  href="/settings/usage"
+                  onclick={() => (panel = 'none')}
+                  class="hover:bg-subtle flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm text-gray-700 transition"
+                >
+                  <Icon icon={mdiChartBoxOutline} size="1.25rem" />
+                  Account stats
+                </a>
+              {/if}
               <!-- Help is organiser-facing only: a super admin receives these
                    messages, so offering them the form would be circular. -->
               {#if !me.isSuperAdmin}

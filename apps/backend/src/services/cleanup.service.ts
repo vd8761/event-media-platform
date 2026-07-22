@@ -10,6 +10,7 @@ import { JobName, JobStatus, QueueName } from 'src/enum';
 import { ConfigRepository } from 'src/repositories/config.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { LoggingRepository } from 'src/repositories/logging.repository';
+import { PasswordResetRepository } from 'src/repositories/password-reset.repository';
 import { SessionRepository } from 'src/repositories/session.repository';
 import { StorageRepository } from 'src/repositories/storage.repository';
 import { DB } from 'src/schema';
@@ -27,6 +28,7 @@ export class CleanupService {
     configRepository: ConfigRepository,
     private jobRepository: JobRepository,
     private logger: LoggingRepository,
+    private passwordResetRepository: PasswordResetRepository,
     private sessionRepository: SessionRepository,
     private storageRepository: StorageRepository,
   ) {
@@ -84,6 +86,14 @@ export class CleanupService {
     const deleted = await this.sessionRepository.deleteExpired();
     if (deleted > 0) {
       this.logger.log(`Deleted ${deleted} expired sessions`);
+    }
+
+    // Expired reset tokens ride along on the same sweep: they are the same
+    // kind of thing (a dead credential row) on the same cadence, and giving
+    // them their own job would be a second schedule to keep working.
+    const tokens = await this.passwordResetRepository.deleteExpired();
+    if (tokens > 0) {
+      this.logger.log(`Deleted ${tokens} expired password reset tokens`);
     }
     return JobStatus.Success;
   }

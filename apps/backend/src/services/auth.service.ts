@@ -4,13 +4,22 @@
 // super-admin / org-role checks.
 import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { IncomingHttpHeaders } from 'node:http';
-import { AdminSignupDto, AuthDto, ChangePasswordDto, LoginDetails, LoginDto, LoginResponseDto } from 'src/dtos/auth.dto';
+import {
+  AdminSignupDto,
+  AuthDto,
+  ChangePasswordDto,
+  LoginDetails,
+  LoginDto,
+  LoginResponseDto,
+  ResetPasswordDto,
+} from 'src/dtos/auth.dto';
 import { OrgRole } from 'src/enum';
 import { ConfigRepository } from 'src/repositories/config.repository';
 import { CryptoRepository } from 'src/repositories/crypto.repository';
 import { EventRepository } from 'src/repositories/event.repository';
 import { OrganizationRepository } from 'src/repositories/organization.repository';
 import { ParticipantRepository } from 'src/repositories/participant.repository';
+import { PasswordResetRepository } from 'src/repositories/password-reset.repository';
 import { SessionRepository } from 'src/repositories/session.repository';
 import { UserRepository } from 'src/repositories/user.repository';
 
@@ -52,6 +61,7 @@ export class AuthService {
     private eventRepository: EventRepository,
     private organizationRepository: OrganizationRepository,
     private participantRepository: ParticipantRepository,
+    private passwordResetRepository: PasswordResetRepository,
     private sessionRepository: SessionRepository,
     private userRepository: UserRepository,
   ) {}
@@ -207,6 +217,44 @@ export class AuthService {
     await this.userRepository.update(user.id, {
       password: await this.cryptoRepository.hashBcrypt(dto.newPassword, SALT_ROUNDS),
     });
+
+    // Any outstanding reset link is void now that the password is known-good.
+    await this.passwordResetRepository.invalidateForUser(user.id);
+
+    // Drop every other session. Someone changing their password is usually
+    // doing it because the old one may be known to someone else; leaving that
+    // person's existing session alive would make the change cosmetic. The
+    // current session survives so the user is not logged out of the tab they
+    // just used.
+    await this.sessionRepository.deleteForUser(user.id, auth.session?.id);
+  }
+
+  // Redeem a reset link. Unauthenticated: the account holder cannot sign in,
+  // which is the situation this exists for.
+  //
+  // Every failure returns the same message. Distinguishing "expired" from
+  // "already used" from "no such token" tells someone probing the endpoint
+  // which of their guesses was once a real token, and the person legitimately
+  // holding a dead link needs the same next step either way: ask for another.
+  async resetPassword(dto: ResetPasswordDto): Promise<void> {
+    const token = await this.passwordResetRepository.redeem(this.cryptoRepository.hashSha256(dto.token));
+    if (!token) {
+      throw new BadRequestException('This reset link is no longer valid. Please request a new one.');
+    }
+
+    const user = await this.userRepository.getById(token.userId);
+    if (!user) {
+      throw new BadRequestException('This reset link is no longer valid. Please request a new one.');
+    }
+
+    await this.userRepository.update(user.id, {
+      password: await this.cryptoRepository.hashBcrypt(dto.newPassword, SALT_ROUNDS),
+    });
+
+    // No session is issued here. Redeeming the link proves control of the
+    // mailbox, not of the account — the new password has to be typed at the
+    // login screen, so an intercepted link alone does not hand over a session.
+    await this.sessionRepository.deleteForUser(user.id);
   }
 
   private async createSession(

@@ -9,12 +9,13 @@
   // this scale: infinite scroll and a month scrubber.
   import { goto } from '$app/navigation';
   import { api, type OrgTimelineAsset } from '$lib/api';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import EventGlimpse from '$lib/components/EventGlimpse.svelte';
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
   import Scrubber from '$lib/components/Scrubber.svelte';
   import { shellStore } from '$lib/shell.svelte';
   import { Heading, Icon, LoadingSpinner } from '@immich/ui';
-  import { mdiChevronDown } from '@mdi/js';
+  import { mdiChevronDown, mdiImageMultipleOutline } from '@mdi/js';
 
   let timelineTop = $state<HTMLElement | null>(null);
   let timelineEl = $state<HTMLElement | null>(null);
@@ -116,10 +117,11 @@
 {#if loading}
   <div class="flex justify-center py-20"><LoadingSpinner size="giant" /></div>
 {:else if assets.length === 0}
-  <div class="md-surface p-10 text-center">
-    <p class="md-title-medium mb-1">No photos yet</p>
-    <p class="md-body-medium text-gray-500">Photos from every event in your organization appear here.</p>
-  </div>
+  <EmptyState
+    icon={mdiImageMultipleOutline}
+    title="No photos yet"
+    description="Photos from every event in your organization appear here."
+  />
 {:else}
   <!-- Reserve the scrubber's rail width on the right so tiles never sit under
        it (Immich reserves scrubberWidth the same way). -->

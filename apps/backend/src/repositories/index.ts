@@ -21,6 +21,7 @@ import { MediaRepository } from 'src/repositories/media.repository';
 import { OrganizationRepository } from 'src/repositories/organization.repository';
 import { ParticipantRepository } from 'src/repositories/participant.repository';
 import { PersonRepository } from 'src/repositories/person.repository';
+import { PasswordResetRepository } from 'src/repositories/password-reset.repository';
 import { SessionRepository } from 'src/repositories/session.repository';
 import { StorageRepository } from 'src/repositories/storage.repository';
 import { SupportRepository } from 'src/repositories/support.repository';
@@ -52,6 +53,7 @@ export const repositories = [
   OrganizationRepository,
   ParticipantRepository,
   PersonRepository,
+  PasswordResetRepository,
   SessionRepository,
   StorageRepository,
   SupportRepository,

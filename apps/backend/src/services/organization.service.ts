@@ -1,17 +1,44 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AddMemberDto, CreateOrgDto, UpdateMemberDto, UpdateOrgDto } from 'src/dtos/org.dto';
 import { AuditCategory, AuditLevel, JobName, OrgPlan, OrgRole } from 'src/enum';
+import { PasswordResetEmail, subject as passwordResetSubject } from 'src/emails/password-reset.email';
 import { AssetRepository } from 'src/repositories/asset.repository';
+import { ConfigRepository } from 'src/repositories/config.repository';
 import { CryptoRepository } from 'src/repositories/crypto.repository';
+import { EmailRepository } from 'src/repositories/email.repository';
+import { PasswordResetRepository } from 'src/repositories/password-reset.repository';
+import { SessionRepository } from 'src/repositories/session.repository';
 import { AuditLogService } from 'src/services/audit-log.service';
 import { EventRepository } from 'src/repositories/event.repository';
 import { StorageRepository } from 'src/repositories/storage.repository';
 import { JobRepository } from 'src/repositories/job.repository';
 import { OrgMember, OrganizationRepository } from 'src/repositories/organization.repository';
+import { PersonRepository } from 'src/repositories/person.repository';
 import { UserRepository } from 'src/repositories/user.repository';
+import { QuotaService } from 'src/services/quota.service';
 import { Organization } from 'src/schema';
 import { SALT_ROUNDS } from 'src/services/auth.service';
 import { StorageKeys } from 'src/utils/storage-keys';
+
+// One row of the super-admin organizations table. `owner` is nullable because
+// an org whose owner account was deleted still exists and still needs to be
+// visible — hiding it would make the orphan impossible to find and fix.
+export interface OrgSummary {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  plan: OrgPlan;
+  createdAt: Date;
+  storageLimitBytes: number | null;
+  eventLimit: number | null;
+  owner: { id: string; email: string; name: string } | null;
+  usage: {
+    storage: { usedBytes: number; limitBytes: number; remainingBytes: number };
+    events: { used: number; limit: number; remaining: number };
+    hasCustomLimits: boolean;
+  };
+}
 
 export interface OrgNotification {
   id: string;
@@ -22,6 +49,10 @@ export interface OrgNotification {
   at: Date;
 }
 
+// Long enough that an organiser who reads email once a day still gets in,
+// short enough that a link sitting in a mailbox is not a standing key.
+const PASSWORD_RESET_TTL_MS = 24 * 60 * 60 * 1000;
+
 const SHELL_URL_TTL = 3600; // 1 h presigned, same as the gallery lists
 // How close an expiry has to be before the bell mentions it.
 const EXPIRY_WARNING_DAYS = 14;
@@ -31,13 +62,56 @@ export class OrganizationService {
   constructor(
     private assetRepository: AssetRepository,
     private auditLogService: AuditLogService,
+    private configRepository: ConfigRepository,
     private cryptoRepository: CryptoRepository,
+    private emailRepository: EmailRepository,
+    private passwordResetRepository: PasswordResetRepository,
+    private sessionRepository: SessionRepository,
     private eventRepository: EventRepository,
     private storageRepository: StorageRepository,
     private jobRepository: JobRepository,
     private organizationRepository: OrganizationRepository,
+    private personRepository: PersonRepository,
+    private quotaService: QuotaService,
     private userRepository: UserRepository,
   ) {}
+
+  // Super-admin organizations table. Resolves each org's effective limits here
+  // rather than in the client: the "null means use the plan default" rule lives
+  // in QuotaService, and duplicating it in the frontend is how the two drift.
+  async listWithUsage(): Promise<OrgSummary[]> {
+    const rows = await this.organizationRepository.listWithUsage();
+    return rows.map((row) => {
+      const limits = this.quotaService.limitsFor(row);
+      return {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        status: row.status,
+        plan: row.plan,
+        createdAt: row.createdAt,
+        storageLimitBytes: row.storageLimitBytes,
+        eventLimit: row.eventLimit,
+        owner:
+          row.ownerId && row.ownerEmail
+            ? { id: row.ownerId, email: row.ownerEmail, name: row.ownerName ?? '' }
+            : null,
+        usage: {
+          storage: {
+            usedBytes: row.usedBytes,
+            limitBytes: limits.storageBytes,
+            remainingBytes: Math.max(0, limits.storageBytes - row.usedBytes),
+          },
+          events: {
+            used: row.usedEvents,
+            limit: limits.events,
+            remaining: Math.max(0, limits.events - row.usedEvents),
+          },
+          hasCustomLimits: limits.hasCustomLimits,
+        },
+      };
+    });
+  }
 
   list(): Promise<Organization[]> {
     return this.organizationRepository.list();
@@ -51,13 +125,18 @@ export class OrganizationService {
   // the events list with covers, and the storage figure in the sidebar footer.
   // One request rather than three keeps the shell from flashing in stages.
   async getShell(orgId: string) {
-    const [events, storage] = await Promise.all([
+    const [events, storage, namedPeople] = await Promise.all([
       this.eventRepository.listForSidebar(orgId),
       this.assetRepository.getOrgStorage(orgId),
+      // Counted here rather than fetched by the sidebar: it decides whether a
+      // nav entry renders at all, so it has to arrive with the rest of the
+      // shell or the entry would pop in a moment after the page settles.
+      this.personRepository.countNamedForOrg(orgId),
     ]);
 
     return {
       storage,
+      namedPeople,
       events: await Promise.all(
         events.map(async (event) => {
           const key = event.coverKey ?? event.fallbackCoverKey;
@@ -297,6 +376,72 @@ export class OrganizationService {
     if (owners.length === 1 && owners[0].userId === userId) {
       throw new BadRequestException('Cannot remove the last owner');
     }
+  }
+
+  // Super-admin password reset for an organization account.
+  //
+  // The new password is generated here, emailed to the account holder, and
+  // never returned to the caller. A super admin who could read it could sign
+  // in as the organization and act as them inside an account full of other
+  // people's photos, with the audit trail showing the organization rather than
+  // the admin. Generating it out of reach keeps "admin reset the password"
+  // and "admin used the account" as two distinguishable events.
+  async resetMemberPassword(orgId: string, userId: string, actorId: string): Promise<void> {
+    const membership = await this.organizationRepository.getMembership(orgId, userId);
+    if (!membership) {
+      throw new NotFoundException('Member not found');
+    }
+    const user = await this.userRepository.getById(userId);
+    if (!user) {
+      throw new NotFoundException('Member not found');
+    }
+
+    // The account is locked rather than given a new usable password: the
+    // existing password is replaced with a random value nobody holds, so the
+    // old credential dies immediately and the only way back in is the emailed
+    // link. This matters when the reason for the reset is that someone else
+    // knows the current password.
+    await this.userRepository.update(user.id, {
+      password: await this.cryptoRepository.hashBcrypt(this.cryptoRepository.randomBytesAsText(32), SALT_ROUNDS),
+    });
+
+    // Sign them out everywhere. A reset that leaves live sessions running does
+    // not actually take the account back from whoever prompted the reset.
+    await this.sessionRepository.deleteForUser(user.id);
+
+    // Any earlier outstanding link stops working — two live reset paths for
+    // one account is one more than should ever exist.
+    await this.passwordResetRepository.invalidateForUser(user.id);
+
+    const token = this.cryptoRepository.randomBytesAsText(32);
+    await this.passwordResetRepository.create({
+      userId: user.id,
+      // Hash only. The raw token exists in exactly one place: the email.
+      token: this.cryptoRepository.hashSha256(token),
+      expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MS),
+      createdBy: actorId,
+    });
+
+    const { html, text } = await this.emailRepository.renderEmail(
+      PasswordResetEmail({
+        name: user.name,
+        resetUrl: `${this.configRepository.getEnv().publicBaseUrl}/reset-password?token=${encodeURIComponent(token)}`,
+        expiresInHours: PASSWORD_RESET_TTL_MS / (60 * 60 * 1000),
+      }),
+    );
+    await this.emailRepository.sendEmail({ to: user.email, subject: passwordResetSubject(), html, text });
+
+    await this.auditLogService.record({
+      category: AuditCategory.Auth,
+      action: 'password.reset.admin',
+      level: AuditLevel.Warning,
+      message: `Super admin reset the password for ${user.email}`,
+      orgId,
+      userId: actorId,
+      // The password itself is deliberately absent. This row records that a
+      // reset happened and who did it, not what the credential is.
+      detail: { targetUserId: user.id, targetEmail: user.email },
+    });
   }
 
   private async resolveUser(email: string, name: string, password?: string) {

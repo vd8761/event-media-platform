@@ -89,6 +89,18 @@ export interface Organization {
   eventLimit: number | null;
 }
 
+// One row of the super-admin organizations table. `owner` is null when the
+// account holder's user was deleted — the org still exists and still needs to
+// be visible so the orphan can be found.
+export interface OrgSummary extends Organization {
+  owner: { id: string; email: string; name: string } | null;
+  usage: {
+    storage: { usedBytes: number; limitBytes: number; remainingBytes: number };
+    events: { used: number; limit: number; remaining: number };
+    hasCustomLimits: boolean;
+  };
+}
+
 export interface EventItem {
   id: string;
   orgId: string;
@@ -276,6 +288,9 @@ export interface OrgShell {
   // in R2 until the purge sweep runs.
   storage: { bytes: number; assets: number };
   events: SidebarEvent[];
+  // Named clusters only. Drives whether the sidebar offers People at all —
+  // an unnamed cluster is a face the system found, not someone to look up.
+  namedPeople: number;
 }
 
 // Account usage statistics, per organisation. Modelled on Immich's
@@ -583,10 +598,14 @@ export const api = {
   logout: () => post<void>('/auth/logout'),
   me: () => get<Me>('/auth/me'),
   changePassword: (password: string, newPassword: string) => put<void>('/auth/password', { password, newPassword }),
+  // Redeeming an emailed reset link. Unauthenticated — the whole point is that
+  // the account holder cannot sign in. Returns nothing: no session is issued,
+  // so the new password has to be typed at the login screen.
+  resetPassword: (token: string, newPassword: string) => post<void>('/auth/reset-password', { token, newPassword }),
 
   // --- super admin ---
   admin: {
-    listOrgs: () => get<Organization[]>('/admin/organizations'),
+    listOrgs: () => get<OrgSummary[]>('/admin/organizations'),
     createOrg: (body: { name: string; slug: string; owner: { email: string; name: string; password?: string } }) =>
       post<Organization>('/admin/organizations', body),
     updateOrg: (orgId: string, body: Partial<{ name: string; slug: string; status: string }>) =>
@@ -659,6 +678,10 @@ export const api = {
       get<{ userId: string; email: string; name: string; role: string }[]>(`/orgs/${orgId}/members`),
     addMember: (orgId: string, body: { email: string; name?: string; password?: string; role: string }) =>
       post<void>(`/orgs/${orgId}/members`, body),
+    // Super admin only. Returns nothing on purpose: the generated password is
+    // emailed to the account holder and is never exposed to the caller.
+    resetMemberPassword: (orgId: string, userId: string) =>
+      post<void>(`/orgs/${orgId}/members/${userId}/reset-password`),
   },
 
   events: {

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Kysely } from 'kysely';
+import { Kysely, sql } from 'kysely';
 import { InjectKysely } from 'nestjs-kysely';
 import { OrgPlan, OrgRole, OrgStatus } from 'src/enum';
 import { DB, NewOrganization, Organization, OrganizationUser } from 'src/schema';
@@ -45,6 +45,78 @@ export class OrganizationRepository {
       .where('deletedAt', 'is', null)
       .orderBy('createdAt', 'desc')
       .execute();
+  }
+
+  // Backs the super-admin organizations table: each org with its account
+  // holder and its current consumption.
+  //
+  // One query rather than a per-org fan-out. The obvious implementation —
+  // list(), then a quota lookup per row — is three round trips per
+  // organization, which is fine at ten orgs and a page-load stall at two
+  // hundred. The aggregates are correlated subqueries so an org with no owner
+  // or no events still returns a row.
+  listWithUsage(): Promise<
+    (Organization & {
+      ownerId: string | null;
+      ownerEmail: string | null;
+      ownerName: string | null;
+      usedBytes: number;
+      usedEvents: number;
+    })[]
+  > {
+    return this.db
+      .selectFrom('organization')
+      .selectAll('organization')
+      // The owner is the account holder shown in the table. An org can in
+      // principle have several owners; the earliest-joined one is the account
+      // holder in every practical sense, and picking deterministically keeps
+      // the row stable between loads.
+      .leftJoin(
+        (eb) =>
+          eb
+            .selectFrom('organizationUser')
+            .innerJoin('user', 'user.id', 'organizationUser.userId')
+            .select([
+              'organizationUser.orgId as ouOrgId',
+              'user.id as ownerId',
+              'user.email as ownerEmail',
+              'user.name as ownerName',
+            ])
+            .distinctOn('organizationUser.orgId')
+            .where('organizationUser.role', '=', OrgRole.Owner)
+            .where('user.deletedAt', 'is', null)
+            .orderBy('organizationUser.orgId')
+            .orderBy('organizationUser.createdAt', 'asc')
+            .as('owner'),
+        (join) => join.onRef('owner.ouOrgId', '=', 'organization.id'),
+      )
+      .select((eb) => [
+        eb
+          .selectFrom('asset')
+          .innerJoin('event', 'event.id', 'asset.eventId')
+          .whereRef('event.orgId', '=', 'organization.id')
+          .where('asset.deletedAt', 'is', null)
+          .select(sql<string>`coalesce(sum(asset.file_size), 0)`.as('bytes'))
+          .as('usedBytes'),
+        eb
+          .selectFrom('event')
+          .whereRef('event.orgId', '=', 'organization.id')
+          .where('event.deletedAt', 'is', null)
+          .select(sql<string>`count(*)`.as('count'))
+          .as('usedEvents'),
+      ])
+      .where('organization.deletedAt', 'is', null)
+      .orderBy('organization.createdAt', 'desc')
+      .execute()
+      .then((rows) =>
+        rows.map((row) => ({
+          ...row,
+          // Postgres returns bigint as a string; Number() here keeps the
+          // conversion in one place rather than at every call site.
+          usedBytes: Number(row.usedBytes ?? 0),
+          usedEvents: Number(row.usedEvents ?? 0),
+        })),
+      ) as ReturnType<OrganizationRepository['listWithUsage']>;
   }
 
   listForUser(userId: string): Promise<(Organization & { role: OrgRole })[]> {

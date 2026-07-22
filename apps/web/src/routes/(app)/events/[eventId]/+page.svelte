@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
+  import { goto, invalidateAll } from '$app/navigation';
   import { page } from '$app/state';
   import { api, downloadSelectionZip, uploadAsset, type AssetItem, type ProcessingStatus } from '$lib/api';
   import PhotoTimeline from '$lib/components/PhotoTimeline.svelte';
   import PhotoViewer from '$lib/components/PhotoViewer.svelte';
   import Scrubber from '$lib/components/Scrubber.svelte';
   import ProcessingBar from '$lib/components/ProcessingBar.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { uploadStore } from '$lib/uploads.svelte';
   import SelectionBar from '$lib/components/SelectionBar.svelte';
   import { Button, Icon, IconButton, LoadingSpinner } from '@immich/ui';
@@ -22,10 +23,13 @@
     mdiCloudUploadOutline,
     mdiEyeOffOutline,
   } from '@mdi/js';
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
 
   let { data } = $props();
-  const eventId = data.event.id;
+  // Derived, not captured. SvelteKit reuses this component when only the
+  // `eventId` param changes, so a `const` snapshot would leave every request
+  // below pointed at the event we navigated away from.
+  const eventId = $derived(data.event.id);
   const canManage = $derived(
     data.me.isSuperAdmin ||
       ['owner', 'admin'].includes(data.me.organizations.find((org) => org.id === data.event.orgId)?.role ?? ''),
@@ -200,28 +204,69 @@
     }
   }
 
-  onMount(async () => {
-    await refresh(true);
-    await openFromQuery();
+  // Keyed on `eventId` rather than `onMount`, so switching events from the
+  // sidebar tears the old gallery down and loads the new one. Reading
+  // `eventId` first is what registers the dependency; everything after the
+  // await is untracked.
+  $effect(() => {
+    const id = eventId;
+
+    // Reset before fetching. Without this the previous event's photos stay on
+    // screen for the length of the request, which reads as the gallery simply
+    // not having changed.
+    assets = [];
+    nextCursor = null;
+    viewerIndex = -1;
+    processing = null;
+    clearSelection();
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = undefined;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      await refresh(true);
+      // A fast second switch can settle out of order; the later navigation wins.
+      if (cancelled || id !== eventId) {
+        return;
+      }
+      await openFromQuery();
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   });
+
   // --- draft / active ---
+  // Also keyed to the event: a stale `draft` here would offer to publish an
+  // event that is already live.
   let status = $state(data.event.status);
+  $effect(() => {
+    status = data.event.status;
+  });
   let statusBusy = $state(false);
   let statusError = $state('');
   let copied = $state(false);
   const isActive = $derived(status === 'active');
 
+  // Not optimistic. Publishing runs real work on the server (the gallery is
+  // built, the public link starts resolving), so the button stays in a loading
+  // state until the server confirms, and the status we settle on is the one it
+  // reports back rather than the one we asked for.
   async function setActive(next: boolean) {
-    const previous = status;
-    // Optimistic: the switch should move under the finger, not after a round
-    // trip. Reverted below if the server disagrees.
-    status = next ? 'active' : 'draft';
     statusBusy = true;
     statusError = '';
     try {
-      await api.events.update(eventId, { status: status as typeof data.event.status });
+      const updated = await api.events.update(eventId, { status: next ? 'active' : 'draft' });
+      status = updated.status;
+      // Publishing can change what the gallery contains and what the rest of
+      // the shell shows for this event. Pull both rather than making the user
+      // reload: `invalidateAll` re-runs the layout load (title, share slug),
+      // `refresh` re-pulls the assets and pipeline state.
+      await Promise.all([invalidateAll(), refresh()]);
     } catch (err) {
-      status = previous;
       statusError = err instanceof Error ? err.message : 'Could not change the status';
     } finally {
       statusBusy = false;
@@ -269,7 +314,14 @@
         leadingIcon={isActive ? mdiEyeOffOutline : mdiCloudUploadOutline}
         onclick={() => setActive(!isActive)}
       >
-        {isActive ? 'Unpublish' : 'Publish media'}
+        {#if statusBusy}
+          <span class="flex items-center gap-2">
+            <LoadingSpinner size="tiny" />
+            {isActive ? 'Unpublishing…' : 'Publishing…'}
+          </span>
+        {:else}
+          {isActive ? 'Unpublish' : 'Publish media'}
+        {/if}
       </Button>
     {/if}
 
@@ -321,10 +373,15 @@
 {#if loading}
   <div class="flex justify-center py-20"><LoadingSpinner size="giant" /></div>
 {:else if assets.length === 0}
-  <div class="rounded-2xl border border-dashed border-gray-300 p-16 text-center text-gray-500">
-    <Icon icon={mdiImageOff} size="2.5rem" class="mx-auto mb-3 text-gray-300" />
-    No photos yet — upload some to get started.
-  </div>
+  <EmptyState
+    icon={mdiImageOff}
+    title="No photos yet"
+    description="Upload photos, or import a folder from Google Drive or OneDrive."
+  >
+    {#snippet action()}
+      <Button leadingIcon={mdiUpload} onclick={() => fileInput?.click()}>Upload photos</Button>
+    {/snippet}
+  </EmptyState>
 {:else}
   <div class="md:pe-[60px]">
     <div bind:this={timelineEl}>

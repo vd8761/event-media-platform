@@ -3,7 +3,6 @@
   import { api, ApiError, type AssetItem } from '$lib/api';
   import { shellStore } from '$lib/shell.svelte';
   import { Alert, Button, Input, Switch, Textarea } from '@immich/ui';
-  import { onMount } from 'svelte';
 
   let { data } = $props();
 
@@ -19,6 +18,60 @@
   let error = $state('');
   let saved = $state(false);
   let saving = $state(false);
+  let staleEdits = $state(false);
+
+  // The form fields are seeded from `data`, and SvelteKit reuses this component
+  // when only the `eventId` param changes. Without re-seeding, switching events
+  // leaves the form holding the previous event's values while `save()` writes
+  // them to the new one — editing what looks like event B and silently
+  // overwriting it with event A's settings.
+  //
+  // Unsaved edits are kept rather than discarded: losing someone's typing on a
+  // navigation is bad, but writing it to the wrong event is worse, so a dirty
+  // form is preserved *and* flagged instead of being saved blind.
+  let seededId = data.event.id;
+  const isDirty = () =>
+    name !== data.event.name ||
+    slug !== data.event.slug ||
+    description !== (data.event.description ?? '') ||
+    participantPageEnabled !== data.event.participantPageEnabled ||
+    participantsSeeAllPhotos !== data.event.participantsSeeAllPhotos ||
+    participantsCanDownloadAll !== data.event.participantsCanDownloadAll;
+
+  $effect(() => {
+    if (data.event.id === seededId) {
+      return;
+    }
+    const dirty = isDirty();
+    seededId = data.event.id;
+    if (dirty) {
+      // Keep what they typed, but make it unmistakable that it now belongs to a
+      // different event than the one it was typed against.
+      staleEdits = true;
+      return;
+    }
+    staleEdits = false;
+    error = '';
+    saved = false;
+    name = data.event.name;
+    slug = data.event.slug;
+    description = data.event.description ?? '';
+    participantPageEnabled = data.event.participantPageEnabled;
+    participantsSeeAllPhotos = data.event.participantsSeeAllPhotos;
+    participantsCanDownloadAll = data.event.participantsCanDownloadAll;
+    expiresAtLocal = toLocalInput(data.event.expiresAt);
+  });
+
+  function discardStaleEdits() {
+    name = data.event.name;
+    slug = data.event.slug;
+    description = data.event.description ?? '';
+    participantPageEnabled = data.event.participantPageEnabled;
+    participantsSeeAllPhotos = data.event.participantsSeeAllPhotos;
+    participantsCanDownloadAll = data.event.participantsCanDownloadAll;
+    expiresAtLocal = toLocalInput(data.event.expiresAt);
+    staleEdits = false;
+  }
 
   async function save() {
     error = '';
@@ -52,9 +105,23 @@
   let coverChoices = $state<AssetItem[]>([]);
   let coverBusy = $state(false);
 
-  onMount(async () => {
-    const result = await api.assets.list(data.event.id, undefined, 24).catch(() => null);
-    coverChoices = result?.assets ?? [];
+  // Keyed on the event, not `onMount` — otherwise the cover picker keeps
+  // offering the previous event's photos after a switch.
+  $effect(() => {
+    const id = data.event.id;
+    let cancelled = false;
+    coverChoices = [];
+    void api.assets
+      .list(id, undefined, 24)
+      .catch(() => null)
+      .then((result) => {
+        if (!cancelled) {
+          coverChoices = result?.assets ?? [];
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   });
 
   async function setCover(assetId: string | null) {
@@ -129,6 +196,22 @@
 <svelte:head><title>Settings — {data.event.name}</title></svelte:head>
 
 <div class="max-w-xl">
+  {#if staleEdits}
+    <!-- Switched events with unsaved changes. The fields below still hold what
+         was typed against the previous event, so saving now would apply them
+         here. Say so plainly and offer the way out. -->
+    <div class="mb-4">
+      <Alert color="warning" title="These edits were made against a different event">
+        <p class="text-sm">
+          You changed events while this form had unsaved edits. Saving now would apply them to
+          <strong>{data.event.name}</strong>. Discard them to load this event's real settings.
+        </p>
+        <Button size="small" variant="outline" class="mt-2" onclick={discardStaleEdits}>
+          Discard and reload settings
+        </Button>
+      </Alert>
+    </div>
+  {/if}
   {#if error}<div class="mb-4"><Alert color="danger" title={error} /></div>{/if}
   {#if saved}<div class="mb-4"><Alert color="success" title="Saved" /></div>{/if}
 
