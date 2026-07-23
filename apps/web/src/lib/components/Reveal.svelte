@@ -124,4 +124,17 @@
       transition: none;
     }
   }
+
+  /* The landing page is prerendered, so its text is in the HTML — but the
+     reveal starts at opacity 0 and only clears once the effect runs. Without
+     scripting that never happens, leaving a page that is fully present in the
+     markup yet invisible on screen. Anything that does not run JS (a crawler
+     rendering the page, a reviewer with scripting off) gets it shown. */
+  @media (scripting: none) {
+    .reveal {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+  }
 </style>
