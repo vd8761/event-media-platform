@@ -1,6 +1,7 @@
 <script lang="ts">
-  // Landing page. Shown to signed-out visitors; +page.ts sends anyone with a
-  // live session straight to /photos.
+  // Landing page. Shown to everyone, signed in or not — +page.ts never
+  // redirects away from it. A live session only swaps the three sign-in
+  // calls-to-action for a way back into the app.
   //
   // Structurally in the Google Photos mould — a big warm hero, then one idea
   // per band, each led by a demonstration rather than a screenshot — but the
@@ -11,9 +12,11 @@
   // All motion is CSS — no animation library, nothing that has to be
   // downloaded before the page means anything. The only assets are the hero
   // mosaic's fifteen portraits, which are WebP and lazy below the first row.
+  import { api } from '$lib/api';
   import Logo from '$lib/components/Logo.svelte';
   import Reveal from '$lib/components/Reveal.svelte';
   import { Icon } from '@immich/ui';
+  import { onMount } from 'svelte';
   import {
     mdiAccountGroupOutline,
     mdiCloudUploadOutline,
@@ -25,6 +28,27 @@
     mdiMenu,
     mdiShieldCheckOutline,
   } from '@mdi/js';
+
+  // Resolved in the browser, not in a load function: this page is prerendered
+  // (see +page.ts), and at build time there is no session to check. The
+  // prerendered HTML therefore ships the signed-out call to action, which is
+  // both the correct default for a first-time visitor and the one Google's
+  // branding fetch should see. A signed-in organiser gets it swapped after
+  // hydration.
+  let signedIn = $state(false);
+
+  onMount(async () => {
+    try {
+      await api.me();
+      signedIn = true;
+    } catch {
+      // 401, API down, offline — all mean "offer sign-in", which is already
+      // what is on screen. Nothing to do but leave it.
+    }
+  });
+
+  // One decision, three call sites: desktop nav, mobile menu and hero.
+  const cta = $derived(signedIn ? { href: '/photos', label: 'Open panel' } : { href: '/login', label: 'Sign in' });
 
   let menuOpen = $state(false);
 
@@ -109,7 +133,7 @@
         <a href="#how" class="nav-link text-gray-600">How it works</a>
         <a href="#features" class="nav-link text-gray-600">Features</a>
         <a href="#privacy" class="nav-link text-gray-600">Privacy</a>
-        <a href="/login" class="cta ms-2">Sign in</a>
+        <a href={cta.href} class="cta ms-2">{cta.label}</a>
       </div>
 
       <button
@@ -128,7 +152,7 @@
         <a href="#how" class="mobile-link" onclick={() => (menuOpen = false)}>How it works</a>
         <a href="#features" class="mobile-link" onclick={() => (menuOpen = false)}>Features</a>
         <a href="#privacy" class="mobile-link" onclick={() => (menuOpen = false)}>Privacy</a>
-        <a href="/login" class="cta mt-2 w-full justify-center" onclick={() => (menuOpen = false)}>Sign in</a>
+        <a href={cta.href} class="cta mt-2 w-full justify-center" onclick={() => (menuOpen = false)}>{cta.label}</a>
       </div>
     {/if}
   </header>
@@ -164,7 +188,7 @@
 
       <Reveal delay={240}>
         <div class="mt-9 flex flex-wrap items-center justify-center gap-3">
-          <a href="/login" class="cta cta-lg">Sign in</a>
+          <a href={cta.href} class="cta cta-lg">{cta.label}</a>
           <a href="#how" class="cta-ghost cta-lg">See how it works</a>
         </div>
       </Reveal>

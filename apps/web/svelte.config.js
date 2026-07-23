@@ -5,9 +5,15 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 const config = {
   preprocess: vitePreprocess(),
   kit: {
-    // static SPA, all loaders run in the browser (docs/plan/10 §intro)
+    // Static SPA, all loaders run in the browser (docs/plan/10 §intro) — with
+    // the exception of the three public pages, which prerender to real HTML.
+    //
+    // The fallback must NOT be index.html: `/` is now prerendered, and the
+    // adapter writes the fallback last, silently overwriting the landing page
+    // with an empty shell. Naming it 200.html keeps them apart; vercel.json
+    // rewrites unmatched paths there.
     adapter: adapter({
-      fallback: 'index.html',
+      fallback: '200.html',
     }),
   },
 };
